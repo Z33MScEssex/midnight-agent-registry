@@ -1,0 +1,9 @@
+# Thief test 1: this morning's payment (0021c641...), presented with a random key
+[Thief] Agent A answered 402, asking 100000 STAR to mn_addr_preview1wejrdqkp...
+[Thief] /verify -> {"isValid":false,"invalidReason":"payer_mismatch"}
+[Thief] /settle -> {"success":false,"errorReason":"payer_mismatch","transaction":"0021c641126186897eb11d3937fc22e4235f96995a42a17eb0f8ea9f9dd164e7b4","network":"midnight:preview"}
+
+# Thief test 2: the new signed payment (00e2d5fd...), presented with a random key after it was claimed
+[Thief] Agent A answered 402, asking 100000 STAR to mn_addr_preview1wejrdqkp...
+[Thief] /verify -> {"isValid":false,"invalidReason":"payer_mismatch"}
+[Thief] /settle -> {"success":false,"errorReason":"payer_mismatch","transaction":"00e2d5fd94b7d2e5ca351bebcd6a22b3ce8de8c7978a60f9e00ce5d54b889a55e6","network":"midnight:preview"}

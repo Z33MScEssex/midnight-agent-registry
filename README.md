@@ -14,7 +14,7 @@ payment work, are in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## It works
 
-Run on Midnight's Preview network, 2026-11-26 ([`docs/logs/x402_paid_test.log`](docs/logs/x402_paid_test.log)):
+Run on Midnight's Preview network, 2026-11-26, with signed payment proofs ([`docs/logs/x402_signed_paid_test.log`](docs/logs/x402_signed_paid_test.log)):
 
 ```
 [AgentB] Registry 05cb427a... lists 2 agent(s):
@@ -23,24 +23,30 @@ Run on Midnight's Preview network, 2026-11-26 ([`docs/logs/x402_paid_test.log`](
 [AgentB] Chose #2 Echo agent, Agent Card at http://localhost:41241/.well-known/agent-card.json
 [AgentB] Will pay at most 100000 STAR per call (the on-chain price)
 [AgentB] Card checked: "Echo agent" v1.0.0 matches the on-chain record
-[AgentB] Sending "hello, here is my payment"
+[AgentB] Sending "hello, this payment is signed"
 [AgentB] Payment needed: starting wallet (first sync takes a few minutes)...
-[x402] Paid 100000 STAR to mn_addr_preview1wejrdqkp... in transaction 0021c641126186897eb11d3937fc22e4235f96995a42a17eb0f8ea9f9dd164e7b4
-[AgentB] Task created id=6d11dba5-5e8c-4967-a47c-24d306000614 state=TASK_STATE_SUBMITTED
+[x402] Paid 100000 STAR to mn_addr_preview1wejrdqkp... in transaction 00e2d5fd94b7d2e5ca351bebcd6a22b3ce8de8c7978a60f9e00ce5d54b889a55e6
+[AgentB] Task created id=a416eb48-8d92-45d2-8f53-585a7f29f600 state=TASK_STATE_SUBMITTED
 [AgentB] statusUpdate state=TASK_STATE_WORKING
 [AgentB] Reply from Echo agent: Hello World! Nice to meet you!
 [AgentB] statusUpdate state=TASK_STATE_COMPLETED
+[AgentB] Done.
 ```
 
 - Registry contract on Preview: `05cb427aef81572d8b211ffb4f5ab6242b3c04f3604c0fb77dfa61d3c6235a8a`
 - Contract tests: **9 of 9** in memory and **6 of 6** on the Preview network. They include a
   different key trying to redirect an agent's endpoint (refused) and a check that no secret key
   appears anywhere on chain.
+- Payment binding tests: **7 of 7** in memory, no network. They cover a thief's own signature, a
+  signature for a lower price or another transaction, a missing prefix, a replay and an ECDSA key.
 - Payment checks on Preview:
   - an unpaid call gets HTTP 402;
   - a price above the on-chain record is refused before any money moves;
   - a paid call goes through (above);
-  - **the same payment sent twice is refused** (`payment_already_used`).
+  - **the same payment sent twice is refused** (`payment_already_used`);
+  - **someone else presenting a real payment as theirs is refused** (`payer_mismatch`): each proof is
+    signed by the key that paid, and the facilitator checks that key against the payer on chain.
+    Tried live on two real payments: [`docs/logs/x402_thief_test.log`](docs/logs/x402_thief_test.log).
 - Record #1 was left by the network test. Its URL is made up on purpose.
 
 ## How it fits together
@@ -54,7 +60,8 @@ Run on Midnight's Preview network, 2026-11-26 ([`docs/logs/x402_paid_test.log`](
  x402 paywall ◄──────────────────────── A2A call ───────────────────────  (no payment yet)
    402 + PAYMENT-REQUIRED ─────────────────────────────────────────────►  price <= on-chain price?
                                          tNIGHT transfer ◄──────────────  pay Agent A
- facilitator ◄─ check on indexer,  ◄──── A2A call + PAYMENT-SIGNATURE ───  retry with transaction id
+ facilitator ◄─ check signature,   ◄──── A2A call + PAYMENT-SIGNATURE ───  retry with transaction id,
+   payer and amount on indexer,                                            signed by the paying key
    claim once                                                              
  answer ───────────────────────────────────────────────────────────────►  reply
 ```
@@ -94,6 +101,10 @@ AGENT_A_PRICE=100000 npm run agent-a
 MIDNIGHT_PREVIEW_ALICE_SEED="$(sed -n 's/^WALLET_SEED=//p' ../wallet/.env.preview)" \
   MIDNIGHT_MIN_DUST=5 npm run agent-b -- "Echo agent" "hello"
 ```
+
+To try the thief check, with the facilitator and Agent A running, give it any real payment's
+transaction id: `npm run thief-test -- <transaction id>`. It signs with a random key and should get
+`payer_mismatch`.
 
 Agent B reads the registry with no wallet. It opens its wallet only when Agent A asks for payment, and
 the first sync takes a few minutes. Agent A's receiving address is made the first time it starts.
@@ -135,7 +146,7 @@ source pattern is marked `OURS`.
 The main ones:
 - names in the registry are not unique;
 - Agent A runs on `localhost`;
-- payments are not yet bound to one request (one facilitator per receiving address stands in for it).
+- a payment is bound to its payer and price, not yet to one specific call.
 
 The full list and next steps are in [`docs/DESIGN.md`](docs/DESIGN.md#known-limits).
 

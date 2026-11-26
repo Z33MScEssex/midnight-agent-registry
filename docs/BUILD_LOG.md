@@ -124,3 +124,39 @@ Results on Preview:
 Known limit: the spec asks each payment to be bound to one request. A Midnight public transfer carries
 no memo, so this version uses the spec's fallback: one facilitator per receiving address, with a
 single-use store. See [`DESIGN.md`](DESIGN.md#payments-x402).
+
+## 8. Binding each payment to its payer (2026-11-26)
+
+Closes the gap left in step 7. Payments on Midnight are public, so before this anyone could copy a
+transaction identifier off the chain and present it as their own. Topic 14 in
+[`research_sources.md`](research_sources.md) holds the sources.
+
+- **Design:** the generic `exact` spec's "payer signature over the requirements" option.
+  - After paying, Agent B signs `agent-registry:x402-midnight:v1|network|payTo|amount|asset|transaction`
+    with the unshielded key that paid, behind Midnight's `midnight_signed_message:<size>:` prefix.
+  - The facilitator rebuilds that text itself from Agent A's requirements and checks the signature
+    (`verifySignature`).
+  - It turns the key into an address (`addressFromKey`) and requires every input the transaction spent
+    to come from that address.
+  - A payment is claimed only after every check has passed, so a refused proof holds no claim.
+- **Ledger 9 differs from the docs**, which show ledger 8. Keys and signatures are `{ tag, value }`
+  records, not bare hex. A runtime check with a throwaway key confirmed sign, verify and key-to-address on
+  the installed packages before the build.
+- **In-memory tests: 7 of 7 passed** ([`x402-binding.sim.test.ts`](../registry/src/test/x402-binding.sim.test.ts)),
+  with the indexer stubbed. Switching off the payer check made the two payer tests fail, so they catch it.
+
+Results on Preview:
+1. **Signed paid call, pass:** Agent B paid 100,000 STAR in transaction
+   `00e2d5fd94b7d2e5ca351bebcd6a22b3ce8de8c7978a60f9e00ce5d54b889a55e6`. The address the facilitator
+   derived from the signing key matched the code wallet that paid, and Agent A answered.
+   [`logs/x402_signed_paid_test.log`](logs/x402_signed_paid_test.log), [`logs/facilitator_signed.log`](logs/facilitator_signed.log)
+2. **Thief refused:** [`demo/thief-test.ts`](../registry/demo/thief-test.ts) took real payments (this
+   morning's and the new one), signed them with a random key, and presented them. Both `/verify` and
+   `/settle` answered `payer_mismatch`. Agent A handled exactly one message, the paid one.
+   [`logs/x402_thief_test.log`](logs/x402_thief_test.log)
+
+Remaining limit: the signature binds the payer, price, address and token, not one specific call. See
+[`DESIGN.md`](DESIGN.md#known-limits).
+
+Note: the project needs Node 22 (`nvm use`). One run on Node 20 stopped before paying, because a
+library needs Node 22's zstd support.

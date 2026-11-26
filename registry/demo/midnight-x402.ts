@@ -2,11 +2,13 @@
 // Sources (research plan): the generic exact spec's client-submitted rules (Topic 10, added 2026-11-26),
 // spec 6.1 upfront flow and 7.2 "marking a transaction as used" (Topic 10), the SDK plug-in interfaces
 // SchemeNetworkServer / SchemeNetworkClient / SchemeNetworkFacilitator (types in @x402/core 2.32.0),
-// transferNight (Topic 12) and the indexer `transactions` query (Topic 13).
+// transferNight (Topic 12), the indexer `transactions` query (Topic 13), and request binding by a payer
+// signature (Topic 14: prefixMessage, keystore signData, ledger verifySignature and addressFromKey).
 // Everything that joins these together is OURS and marked so.
 import fs from 'node:fs'; // the claim store survives restarts
 import { MidnightBech32m, UnshieldedAddress } from '@midnightntwrk/wallet-sdk'; // address parsing (Topic 12, manage-dust step 1)
 import { nativeToken } from '@midnight-ntwrk/midnight-js-protocol/v9'; // NIGHT's token id (Topic 12, transferNight)
+import * as ledger from '@midnightntwrk/ledger-v9'; // verifySignature and addressFromKey (Topic 14, ledger 9 records)
 import type {
   AssetAmount,
   Network,
@@ -25,8 +27,41 @@ import type { MidnightWalletProvider } from '../src/wallet.js'; // the template 
 export const MIDNIGHT_PREVIEW: Network = 'midnight:preview';
 // NIGHT's token type as the indexer reports it (hex). The same value transferNight pays in.
 export const NIGHT_ASSET: string = nativeToken().raw;
-// The payload this scheme carries: the identifier submitTransaction returned (Topic 12).
-export type MidnightPayload = { transaction: string };
+// The payload this scheme carries: the identifier submitTransaction returned (Topic 12), plus the payer's
+// key and its signature binding that identifier to these payment requirements (Topic 14, ledger 9 records).
+export type MidnightPayload = {
+  transaction: string; // what was paid
+  verifyingKey: ledger.SignatureVerifyingKey; // { tag, value }: the key that spent the tNIGHT
+  signature: ledger.Signature; // { tag, value }: that key's signature over bindingMessage(...)
+};
+
+// ---------------------------------------------------------------- request binding (Topic 14)
+
+// OURS: what the payer signs. MIP-0031 section 1 asks for the app's own identity in the payload, so a
+// signature made for this cannot be reused elsewhere. The rest is the payment requirements plus the proof.
+// The SDK's scheme client is not given the resource URL, so it cannot be included (DESIGN.md, limits).
+const BINDING_TAG = 'agent-registry:x402-midnight:v1';
+export function bindingPayload(req: PaymentRequirements, transaction: string): Uint8Array {
+  const fields = [BINDING_TAG, req.network, req.payTo, req.amount, req.asset, transaction]; // order is fixed
+  return new TextEncoder().encode(fields.join('|')); // '|' cannot appear in any field (all hex, Bech32m or digits)
+}
+
+// Topic 14, Build a wallet step 5, verbatim: the connector spec's prefix, so this can never sign a transaction.
+export function prefixMessage(data: Uint8Array): Uint8Array {
+  const header = new TextEncoder().encode(`midnight_signed_message:${data.length}:`); // size in bytes
+  const message = new Uint8Array(header.length + data.length); // room for both
+  message.set(header); // prefix first
+  message.set(data, header.length); // then the payload
+  return message;
+}
+
+// OURS: the wire form MIP-0031 section 5 sets for Schnorr (64 hex key, 128 hex signature, lowercase),
+// applied to the ledger 9 records. v1 accepts Schnorr only, the kind our wallets use (Topic 14, Item 4).
+function isSchnorrRecord(x: unknown, hexLength: number): x is { tag: 'schnorr'; value: string } {
+  if (typeof x !== 'object' || x === null) return false; // must be an object
+  const r = x as { tag?: unknown; value?: unknown }; // read each field once
+  return r.tag === 'schnorr' && typeof r.value === 'string' && new RegExp(`^[0-9a-f]{${hexLength}}$`).test(r.value);
+}
 
 // ---------------------------------------------------------------- server side (Agent A)
 
@@ -53,7 +88,7 @@ export class MidnightExactServer implements SchemeNetworkServer {
 
 // ---------------------------------------------------------------- client side (Agent B)
 
-// What Agent B's x402 client calls when it meets a 402: pay on Midnight, return the proof.
+// What Agent B's x402 client calls when it meets a 402: pay on Midnight, sign the proof, return both.
 export class MidnightExactClient implements SchemeNetworkClient {
   readonly scheme = 'exact';
   // The wallet is opened only when a payment is actually made (OURS): a refused 402 costs no wallet sync.
@@ -70,7 +105,10 @@ export class MidnightExactClient implements SchemeNetworkClient {
     const wallet = await this.getWallet(); // synced and funded wallet
     const transaction = await wallet.transferNight(to, amount, ttl); // Topic 12: returns the identifier
     console.log(`[x402] Paid ${amount} STAR to ${req.payTo.slice(0, 24)}... in transaction ${transaction}`); // OURS: progress line
-    const payload: MidnightPayload = { transaction };
+    // Topic 14: sign the prefixed binding message with the same unshielded key that spent the tNIGHT.
+    const keystore = wallet.unshieldedKeystore; // the key transferNight signed the inputs with
+    const signature = keystore.signData(prefixMessage(bindingPayload(req, transaction))); // ledger 9: { tag, value }
+    const payload: MidnightPayload = { transaction, verifyingKey: keystore.getPublicKey(), signature };
     return { x402Version, payload };
   }
 }
@@ -96,8 +134,9 @@ type IndexedTx = {
   transactionResult?: { status: string };
 };
 
-// Checks a Midnight payment on the indexer, then claims it once. Settle is where the claim happens
-// (spec 7.2: "marking a transaction as used"); verify is read-only.
+// Checks a Midnight payment on the indexer and that the signer paid it, then claims it once.
+// Order (OURS): the cheap signature check first, then the indexer, then the claim taken synchronously after
+// the last await. Only the payer can produce a valid signature, so nobody else can ever hold a claim.
 export class MidnightExactFacilitator implements SchemeNetworkFacilitator {
   readonly scheme = 'exact';
   readonly caipFamily = 'midnight:*';
@@ -128,50 +167,73 @@ export class MidnightExactFacilitator implements SchemeNetworkFacilitator {
     return body.data?.transactions?.[0]; // undefined until the transaction is in a block
   }
 
-  // The checks, modelled on the Cardano spec's Facilitator Verification Rules (OURS for Midnight).
-  private check(tx: IndexedTx, req: PaymentRequirements): string | undefined {
+  // Topic 14: shape, then signature. Returns the payer's Bech32m address, or a reason to refuse.
+  // The expected message is rebuilt here from the requirements the resource server sent (MIP-0031 section 7,
+  // step 7): nothing signed is read back from the payload.
+  private checkSignature(payload: PaymentPayload, req: PaymentRequirements): { reason: string } | { transaction: string; payer: string } {
+    const p = payload.payload as Partial<MidnightPayload>; // untrusted
+    const transaction = p.transaction; // read once
+    if (typeof transaction !== 'string' || !/^[0-9a-f]+$/i.test(transaction)) return { reason: 'invalid_payload' };
+    const vk = p.verifyingKey; // read once
+    const sig = p.signature; // read once
+    if (!isSchnorrRecord(vk, 64) || !isSchnorrRecord(sig, 128)) return { reason: 'invalid_payload' }; // MIP-0031 s5 wire form
+    let valid = false; // MIP-0031 s7: every input reaches a verdict, a throw is a refusal
+    try {
+      valid = ledger.verifySignature(vk, prefixMessage(bindingPayload(req, transaction)), sig); // Topic 14, Item 3
+    } catch {
+      valid = false;
+    }
+    if (!valid) return { reason: 'invalid_signature' };
+    const networkId = req.network.split(':')[1]; // 'midnight:preview' -> 'preview' (OURS)
+    // Topic 14, Item 4: key -> address (hex) -> Bech32m for this network, the form the indexer reports as owner.
+    const payer = MidnightBech32m.encode(networkId, new UnshieldedAddress(Buffer.from(ledger.addressFromKey(vk), 'hex'))).toString();
+    return { transaction, payer };
+  }
+
+  // The on-chain checks, modelled on the Cardano spec's Facilitator Verification Rules (OURS for Midnight).
+  private check(tx: IndexedTx, req: PaymentRequirements, payer: string): string | undefined {
     if (tx.transactionResult?.status !== 'SUCCESS') return 'transaction_not_successful'; // finality: applied in full
+    // Request binding: the signer must be who spent the inputs. Every input, so nobody can sign for a shared one.
+    const spenders = tx.unshieldedSpentOutputs.map((o) => o.owner);
+    if (spenders.length === 0 || spenders.some((owner) => owner !== payer)) return 'payer_mismatch';
     const paid = tx.unshieldedCreatedOutputs
       .filter((o) => o.owner === req.payTo && o.tokenType === req.asset) // recipient and asset must match exactly
       .reduce((sum, o) => sum + BigInt(o.value), 0n);
     if (paid < BigInt(req.amount)) return 'insufficient_amount'; // below the price: rejected, not refunded
     const ageMs = Date.now() - (tx.block?.timestamp ?? 0); // retention bound: proofs expire
     if (ageMs > req.maxTimeoutSeconds * 1000) return 'payment_too_old';
-    return undefined; // at or above the price, recent, successful: accepted (overpayment is kept)
+    return undefined; // at or above the price, recent, successful, paid by the signer: accepted
   }
 
   async verify(payload: PaymentPayload, req: PaymentRequirements): Promise<VerifyResponse> {
-    const { transaction } = payload.payload as MidnightPayload;
-    if (typeof transaction !== 'string' || !/^[0-9a-f]+$/i.test(transaction)) return { isValid: false, invalidReason: 'invalid_payload' };
-    if (this.claims.has(this.key(req.network, transaction))) return { isValid: false, invalidReason: 'payment_already_used' };
-    const tx = await this.lookup(transaction);
+    const signed = this.checkSignature(payload, req);
+    if ('reason' in signed) return { isValid: false, invalidReason: signed.reason };
+    const tx = await this.lookup(signed.transaction);
     if (!tx) return { isValid: false, invalidReason: 'transaction_not_found' };
-    const reason = this.check(tx, req);
-    return reason ? { isValid: false, invalidReason: reason } : { isValid: true, payer: tx.unshieldedSpentOutputs[0]?.owner };
+    const reason = this.check(tx, req, signed.payer);
+    if (reason) return { isValid: false, invalidReason: reason };
+    if (this.claims.has(this.key(req.network, signed.transaction))) return { isValid: false, invalidReason: 'payment_already_used' };
+    return { isValid: true, payer: signed.payer };
   }
 
   async settle(payload: PaymentPayload, req: PaymentRequirements): Promise<SettleResponse> {
-    const { transaction } = payload.payload as MidnightPayload;
-    const fail = (errorReason: string): SettleResponse => ({ success: false, errorReason, transaction: transaction ?? '', network: req.network });
-    if (typeof transaction !== 'string' || !/^[0-9a-f]+$/i.test(transaction)) return fail('invalid_payload');
-    const key = this.key(req.network, transaction);
-    // Single-use claim, taken before the first await so two concurrent calls cannot both pass (Cardano spec, mitigation step 3).
+    const raw = (payload.payload as { transaction?: unknown }).transaction; // for the failure reply only
+    const fail = (errorReason: string): SettleResponse => ({ success: false, errorReason, transaction: typeof raw === 'string' ? raw : '', network: req.network });
+    const signed = this.checkSignature(payload, req); // refused before any claim, so a forger can block nobody
+    if ('reason' in signed) return fail(signed.reason);
+    let tx: IndexedTx | undefined;
+    const deadline = Date.now() + this.waitMs;
+    while (!(tx = await this.lookup(signed.transaction)) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000)); // wait for the block, as Topic 12 warns submit is not settle
+    }
+    if (!tx) return fail('settlement_pending'); // not landed yet: nothing claimed, retry later
+    const reason = this.check(tx, req, signed.payer);
+    if (reason) return fail(reason); // nothing claimed: a refused proof never blocks the payer
+    // Single-use claim. No await between this check and the set, so two concurrent settles cannot both pass.
+    const key = this.key(req.network, signed.transaction);
     if (this.claims.has(key)) return fail('payment_already_used');
     this.claims.set(key, Date.now());
-    try {
-      let tx: IndexedTx | undefined;
-      const deadline = Date.now() + this.waitMs;
-      while (!(tx = await this.lookup(transaction)) && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 3000)); // wait for the block, as Topic 12 warns submit is not settle
-      }
-      if (!tx) { this.claims.delete(key); return fail('settlement_pending'); } // not landed yet: release the claim, retry later
-      const reason = this.check(tx, req);
-      if (reason) return fail(reason); // a bad payment stays claimed: it can never become good
-      fs.writeFileSync(this.claimFile, JSON.stringify(Object.fromEntries(this.claims))); // keep the claim across restarts
-      return { success: true, payer: tx.unshieldedSpentOutputs[0]?.owner, transaction, network: req.network, amount: req.amount };
-    } catch (e) {
-      this.claims.delete(key); // indexer error: nothing was decided, so release the claim
-      throw e;
-    }
+    fs.writeFileSync(this.claimFile, JSON.stringify(Object.fromEntries(this.claims))); // keep the claim across restarts
+    return { success: true, payer: signed.payer, transaction: signed.transaction, network: req.network, amount: req.amount };
   }
 }

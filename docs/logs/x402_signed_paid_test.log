@@ -1,0 +1,14 @@
+[AgentB] Registry 05cb427a... lists 2 agent(s):
+  #1 Weather agent | DATA | price 2500 | https://weather.example/agent-card.json
+  #2 Echo agent | DATA | price 100000 | http://localhost:41241/.well-known/agent-card.json
+[AgentB] Chose #2 Echo agent, Agent Card at http://localhost:41241/.well-known/agent-card.json
+[AgentB] Will pay at most 100000 STAR per call (the on-chain price)
+[AgentB] Card checked: "Echo agent" v1.0.0 matches the on-chain record
+[AgentB] Sending "hello, this payment is signed"
+[AgentB] Payment needed: starting wallet (first sync takes a few minutes)...
+[x402] Paid 100000 STAR to mn_addr_preview1wejrdqkp... in transaction 00e2d5fd94b7d2e5ca351bebcd6a22b3ce8de8c7978a60f9e00ce5d54b889a55e6
+[AgentB] Task created id=a416eb48-8d92-45d2-8f53-585a7f29f600 state=TASK_STATE_SUBMITTED
+[AgentB] statusUpdate state=TASK_STATE_WORKING
+[AgentB] Reply from Echo agent: Hello World! Nice to meet you!
+[AgentB] statusUpdate state=TASK_STATE_COMPLETED
+[AgentB] Done.

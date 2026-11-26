@@ -24,7 +24,8 @@
     "agent-a": "MIDNIGHT_NETWORK=preview tsx --tsconfig tsconfig.demo.json demo/agent-a.ts",
     "register-agent-a": "MIDNIGHT_NETWORK=preview MIDNIGHT_WALLET_STATE=off tsx --tsconfig tsconfig.demo.json demo/register-agent-a.ts",
     "agent-b": "MIDNIGHT_NETWORK=preview MIDNIGHT_WALLET_STATE=off tsx --tsconfig tsconfig.demo.json demo/agent-b.ts",
-    "facilitator": "MIDNIGHT_NETWORK=preview tsx --tsconfig tsconfig.demo.json demo/facilitator.ts"
+    "facilitator": "MIDNIGHT_NETWORK=preview tsx --tsconfig tsconfig.demo.json demo/facilitator.ts",
+    "thief-test": "MIDNIGHT_NETWORK=preview tsx --tsconfig tsconfig.demo.json demo/thief-test.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.3.0",
@@ -38,6 +39,7 @@
     "@midnight-ntwrk/midnight-js-types": "5.0.1",
     "@midnight-ntwrk/midnight-js-utils": "5.0.1",
     "@midnight-ntwrk/testkit-js": "5.0.1",
+    "@midnightntwrk/ledger-v9": "1.0.2",
     "@midnightntwrk/wallet-sdk": "2.0.1",
     "@x402/core": "^2.32.0",
     "@x402/express": "^2.32.0",

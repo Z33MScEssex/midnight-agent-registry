@@ -91,11 +91,13 @@ messages and SDK.
    Agent A's address, and the `upfront` payment flow.
 2. Agent B checks the amount against the `price` in Agent A's **on-chain record**, and refuses anything
    higher. This uses the x402 SDK's own spend control, set from the registry.
-3. Agent B sends the tNIGHT on Midnight, then repeats the call with the transaction identifier in a
-   `PAYMENT-SIGNATURE` header.
-4. Agent A's facilitator looks the transaction up on Midnight's indexer. It checks that the payment
-   succeeded, went to Agent A's address, was NIGHT, was at least the price, and is recent. Then it
-   **claims it once**. Only after that does Agent A answer.
+3. Agent B sends the tNIGHT on Midnight. Then it **signs** the payment request and the transaction
+   identifier with the same key that paid, and repeats the call with the identifier, its public key and
+   the signature in a `PAYMENT-SIGNATURE` header.
+4. Agent A's facilitator checks the signature first. Then it looks the transaction up on Midnight's
+   indexer. It checks that the payment succeeded, that **the signer is the address that paid**, that it
+   went to Agent A's address, was NIGHT, was at least the price, and is recent. Then it **claims it
+   once**. Only after that does Agent A answer.
 
 **Why this shape.** x402's generic `exact` spec defines a "client-submitted (payment proof)" family for
 networks where the payer submits the payment itself, and says it must use the `upfront` flow (settle,
@@ -103,10 +105,24 @@ then serve). Spec section 7.2 allows settle to be "marking a transaction as used
 ledger. So nothing here is a custom protocol: it is a new network plugged into x402's documented
 extension points.
 
+**Binding a payment to its payer.** Midnight payments are public, so anyone can read a transaction
+identifier off the chain. Without binding, a stranger could present someone else's payment as their own
+and get served first. The x402 `exact` spec lists "a payer signature over the requirements" as one way to
+bind a proof. So Agent B signs this text with its unshielded key:
+`agent-registry:x402-midnight:v1|network|payTo|amount|asset|transaction`.
+- The signed bytes carry Midnight's `midnight_signed_message:<size>:` prefix, from the DApp Connector
+  spec. A message signed this way can never be a transaction.
+- The facilitator builds the expected text itself from Agent A's requirements, and never reads it back
+  from the payment. This follows MIP-0031 (Proposed).
+- It turns the public key into a Midnight address (`addressFromKey`). Every input the transaction spent
+  must come from that address, which is `payer_mismatch` otherwise.
+- Only Schnorr keys are accepted for now, the kind Midnight wallets use by default.
+
 **Claims.** The single-use key is the network joined to the transaction identifier, as the spec asks.
-It is taken before the facilitator waits on anything, so two copies of one proof cannot both pass.
-Claims are written to disk, so a restart does not reopen old payments. Proofs older than the 402's
-time window are refused.
+The facilitator claims a payment only after every check has passed, with no waiting between the last
+check and the claim, so two copies of one proof cannot both pass. A refused proof never holds a claim,
+so a thief cannot block the real payer. Claims are written to disk, so a restart does not reopen old
+payments. Proofs older than the 402's time window are refused.
 
 **Amounts.** Less than the price is refused and not returned. More than the price is accepted and kept.
 
@@ -127,10 +143,13 @@ time window are refused.
   trusted `ownerHash`, avoids this. It is the first thing to fix.
 - **Agent A's endpoint is `localhost`.** Only the same machine can reach it. A public demo needs
   hosting or a tunnel.
-- **Payments are not bound to one request.** The x402 spec asks each payment proof to be tied to the
-  request it pays for. A Midnight public transfer has no memo field to carry a request id, so this
-  version uses the spec's fallback: one facilitator per receiving address, whose single-use store sees
-  every claim. Binding with a payer signature over the payment request is the next step.
+- **Payments are bound to the payer, not to one call.** The signature ties a payment to the address
+  that made it and to the price, receiving address and token. It does not name the resource URL or
+  one specific call. The x402 SDK does not give the payment plug-in the URL, and a per-call tie would
+  need Agent A's 402 to carry a fresh random number. Until then, a payer who pays once gets one call
+  on any route with the same price and address. The single-use claim stops a second use.
+- **One facilitator per receiving address.** Claims live in that facilitator's own store, so a second
+  facilitator for the same address would not see them.
 - **Agent B's first payment waits for its wallet to sync,** a few minutes on a fresh start.
 - **No size limit on text fields.** The writer pays for what they store, but a reader should not
   trust field lengths.
@@ -141,6 +160,6 @@ time window are refused.
 
 1. Look up by ID or owner, not only by name.
 2. Store a hash of the Agent Card on chain and check it.
-3. Bind each payment to its request with a payer signature over the payment request.
+3. Bind each payment to one call: a fresh random number in each 402, included in what the payer signs.
 4. A public endpoint for Agent A.
 5. `deactivate`, to match MIP-0029.

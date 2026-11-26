@@ -2554,3 +2554,288 @@ query {
   }
 }
 ```
+
+## Topic 14 (added 2026-11-26): binding a payment to one request (payer signature)
+Why: the known limit in DESIGN.md. Today anyone who sees a payment to Agent A on chain could send its transaction id as their own proof. The facilitator would accept it if they got there before the real payer. The generic exact spec (Topic 10) lists "a payer signature over the requirements" as one way to bind a proof to a request. The plan: Agent B signs the payment requirements with the same key that spent the tNIGHT. The facilitator checks the signature, and checks that key owns the spent outputs. Then only the real payer can claim the payment.
+
+Needs no research (already sourced):
+| Piece | Where |
+|---|---|
+| Which request binding options the spec allows | Topic 10, generic exact spec, client-submitted family |
+| The wallet signing a payload with its unshielded key (`signDataAsync`) | Topic 12, transferNight |
+| Who spent the inputs (`unshieldedSpentOutputs { owner }`) | Topic 13 |
+| Parsing a Bech32m address (`MidnightBech32m.parse(...).decode(UnshieldedAddress, ...)`) | Topic 12, manage-dust step 1 |
+
+What to find (the installed `@midnightntwrk/ledger-v9` declares `signData`, `verifySignature(vk, data, signature)`, `signatureVerifyingKey` and `addressFromKey(key)`, and the unshielded wallet exposes `verifyingKey` / `getPublicKey`; these needed documentation pages, not type files):
+1. **Sign arbitrary bytes with the wallet's unshielded key.** How the wallet SDK (or ledger) signs data that is not a transaction. Does it add a prefix or hash before signing? We need the exact bytes that get signed.
+2. **Get the matching public key.** How to read the unshielded verifying key (public key) from the wallet or keystore, and how to turn it into text to send (hex or similar).
+3. **Verify a signature on a server with no wallet.** The ledger function that checks a signature against a public key and the data (`verifySignature` or its documented equivalent), with an example if one exists.
+4. **Public key to address.** How to turn a verifying key into the user address (`addressFromKey` or equivalent), and how that address relates to the Bech32m `mn_addr_preview1...` form the indexer shows as `owner`. We need to compare the two exactly.
+5. (Optional) Any Midnight page or example that does "sign a message, verify it elsewhere", for example DApp Connector `signData` or a login-with-wallet sample. One worked example would settle questions 1 to 4 in one place.
+
+Item 5 comes first because one page covers items 1 to 3. No login-with-wallet sample was found.
+
+### Item 5 (read first): one worked example
+- URL: https://docs.midnight.network/sdks/official/build-a-wallet
+- Where on the page: "Implementing the connected API" > "Procedure", step 5 "Implement signData" (file src/sign-data.ts, functions `decodeData`, `prefixMessage`, `signingMethods`). Then "Verification", the test named "signs the prefixed message, not the raw data" (test/connected-api.test.ts). The same procedure holds `getUnshieldedAddress`, which returns the keystore's `getBech32Address()`.
+- What it taught:
+  - It is the wallet side only. The page shows how a wallet implements `signData` and how its test checks the result with `ledger.verifySignature`. It has no server-side login flow.
+  - The test calls `signData`, then verifies against the prefixed bytes (true) and the raw bytes (false).
+  - The page pins ledger-v8 8.1.3 and Wallet SDK 1.2.0 in its install line, so check names against ledger 9.
+  - The page says the 4.0.1 types don't say what `data` holds in the result. The sample returns the string the DApp sent.
+- Checked (2026-11-26):
+  - All confirmed. The install line is `@midnight-ntwrk/ledger-v8@8.1.3` and `@midnightntwrk/wallet-sdk@1.2.0`, and the test imports `* as ledger from '@midnight-ntwrk/ledger-v8'`.
+  - Signing in the sample uses the keystore's synchronous `signData`. Our wallet (Topic 12) calls `signDataAsync`, which the installed ledger 9 keystore type describes as resolving the same `signData`. Either works.
+- Code pattern from source: (transcribed 2026-11-26 from the page's source file `sdks/official/build-a-wallet.mdx` in midnightntwrk/midnight-docs main at 549bd62. The sign-data block sits inside a numbered list on the page, so its 3-space list indent is removed.)
+
+  Step 5, src/sign-data.ts:
+
+```typescript
+import { ErrorCodes, type ConnectedAPI, type SignDataOptions } from '@midnight-ntwrk/dapp-connector-api';
+import { ConnectorError, requireAccess } from './errors';
+import type { Session, WalletContext } from './session';
+
+function decodeData(data: string, encoding: SignDataOptions['encoding']): Uint8Array {
+  try {
+    switch (encoding) {
+      case 'text':
+        return new TextEncoder().encode(data);
+      case 'base64':
+        return Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+      case 'hex':
+        if (!/^(?:[0-9a-f]{2})*$/i.test(data)) throw new Error('not hex');
+        return Uint8Array.from(data.match(/../g) ?? [], (byte) => parseInt(byte, 16));
+    }
+  } catch {
+    // Fall through to the error below.
+  }
+  throw new ConnectorError(ErrorCodes.InvalidRequest, `The data is not valid ${encoding}.`);
+}
+
+// The specification requires this prefix, so signData can never produce a transaction signature.
+export function prefixMessage(data: Uint8Array): Uint8Array {
+  const header = new TextEncoder().encode(`midnight_signed_message:${data.length}:`);
+  const message = new Uint8Array(header.length + data.length);
+  message.set(header);
+  message.set(data, header.length);
+  return message;
+}
+
+export function signingMethods(ctx: WalletContext, session: Session): Pick<ConnectedAPI, 'signData'> {
+  return {
+    signData: async (data, options) => {
+      await requireAccess(ctx, session, 'signData');
+      const bytes = decodeData(data, options.encoding);
+      if (!(await ctx.ui.approveSignData(session.origin, bytes))) {
+        throw new ConnectorError(ErrorCodes.Rejected, 'The user declined to sign.');
+      }
+      return {
+        data,
+        signature: ctx.unshieldedKeystore.signData(prefixMessage(bytes)),
+        verifyingKey: ctx.unshieldedKeystore.getPublicKey(),
+      };
+    },
+  };
+}
+```
+
+  Verification, test/connected-api.test.ts, the ledger import at the top of the file:
+
+```typescript
+import * as ledger from '@midnight-ntwrk/ledger-v8';
+```
+
+  The same file, the test "signs the prefixed message, not the raw data":
+
+```typescript
+  it('signs the prefixed message, not the raw data', async () => {
+    const { api } = setup();
+    const result = await api.signData('hello midnight', { encoding: 'text', keyType: 'unshielded' });
+    const raw = new TextEncoder().encode('hello midnight');
+
+    expect(new TextDecoder().decode(prefixMessage(raw))).toBe('midnight_signed_message:14:hello midnight');
+    expect(result.data).toBe('hello midnight');
+    expect(ledger.verifySignature(result.verifyingKey, prefixMessage(raw), result.signature)).toBe(true);
+    expect(ledger.verifySignature(result.verifyingKey, raw, result.signature)).toBe(false);
+```
+
+### Item 1: exact bytes signed
+- URL: https://github.com/midnightntwrk/midnight-dapp-connector-api/blob/main/docs/api/_media/SPECIFICATION.md
+  Also: https://github.com/midnightntwrk/midnight-improvement-proposals/blob/main/mips/mip-0031-message-signing/mip-0031-message-signing.md
+  Also: https://docs.midnight.network/api-reference/dapp-connector/type-aliases/SignDataOptions
+- Where on the page:
+  - Connector spec: heading "Signing" (under "Connected API"), plus the `SignDataOptions` and `Signature` types.
+  - MIP-0031: "1. Message construction", "3. Digest and signature schemes", "5. Wire encoding of Signature", "6. Worked examples (non-normative)".
+  - SignDataOptions page: the `encoding` and `keyType` properties.
+- What it taught:
+  - Yes, it adds a prefix. The connector spec says the wallet must prefix the data with `midnight_signed_message:<data_size>:`, where the size is in bytes.
+  - `encoding` is hex, base64 or text. The wallet decodes first, and text is UTF-8 encoded. The size counts decoded bytes (MIP-0031 section 1).
+  - On hashing, the connector spec and the wallet sample say nothing. Both pass the prefixed bytes to the keystore's `signData`. MIP-0031 says the signature binds SHA-256 of the whole prefixed message, for both Schnorr and ECDSA.
+  - MIP-0031 is only Proposed (created 2026-09-08). It says no shipping wallet meets it, and that today's wallets return something other than its required `data` value. Treat its rules as the direction of travel.
+  - The Build a wallet page says testkit-js's `DAppConnectorWalletAdapter` doesn't add the prefix, so don't use it as a reference.
+- Checked (2026-11-26):
+  - All confirmed. MIP-0031's header reads Status: Proposed, Created: 2026-09-08. Its "Backwards Compatibility Assessment" says no deployed producer returns `hex(M)` in `data`, and that a verifier following its section 7 rejects every signature a shipping wallet returns today.
+  - Two MIP-0031 points that matter for us. Section 1: M depends on the payload alone, with no nonce, network or app identity, so "A DApp relying on a signature for authentication SHOULD place both a nonce and its own identity in `P`". Section 7 step 7: the verifier must compare the signed payload byte for byte with the payload it expected, rebuilt on its own side, never read from the signature. Section 7 also says to check the verifying key against an address obtained independently of the signature.
+  - The hashing question does not affect us. Our signer and our verifier are the same ledger pair (keystore `signData`, `ledger.verifySignature`), so whatever happens inside, the round trip either verifies or not. A runtime check below shows it does.
+- Code pattern from source: (transcribed 2026-11-26. Connector spec from midnightntwrk/midnight-dapp-connector-api main at c4b38d1. MIP-0031 from midnightntwrk/midnight-improvement-proposals main at 6c5d9f0. The SignDataOptions page holds the same two properties as the spec's type below, so it is not repeated.)
+
+  Connector spec, "Connected API", the `signData` method:
+
+```ts
+  /**
+   * Sign provided data using key and format specified in the options, data to sign will be prepended with right prefix
+   */
+  signData(data: string, options: SignDataOptions): Promise<Signature>;
+```
+
+  Connector spec, the `SignDataOptions` and `Signature` types:
+
+```ts
+type SignDataOptions = {
+  /**
+   * How are data for signing encoded.
+   * "hex" and "base64" mean binary data are encoded using one or the other format, 
+   *   the wallet must decode them into binary sequence first
+   * "text" means the data should be signed as provided in the string, but encoded into UTF-8 as a normalization step. 
+   *   Conversion is necessary, because JS strings are UTF-16
+   */
+  encoding: "hex" | "base64" | "text"
+  /**
+   * What kind of key to use for signing
+   */
+  keyType: "unshielded";
+};
+type Signature = {
+  /**
+   * The signature scheme used to produce the signature.
+   * Optional for backward compatibility - when omitted, `schnorr_bip340` is assumed.
+   * A future major version of the API will make this field mandatory.
+   */
+  scheme?: "ecdsa_secp256k1_sha256" | "schnorr_bip340";
+  /**
+   * The data signed
+   */
+  data: string; 
+  /**
+   * The signature - concatenation of the big-endian byte encodings of the scalars `r` and `s`,
+   * each padded to 32 bytes (64 bytes total, for either scheme)
+   */
+  signature: string; 
+  /**
+   * The verifying (public) key. Format depends on `scheme`:
+   * 32 bytes for `schnorr_bip340` (BIP-340 x-only), 33 bytes for `ecdsa_secp256k1_sha256` (SEC1 compressed)
+   */
+  verifyingKey: string
+}
+```
+
+  MIP-0031, "1. Message construction":
+
+```
+M = utf8("midnight_signed_message:")  ‖  dec(L)  ‖  utf8(":")  ‖  P
+```
+
+### Item 2: public key from the wallet, as text
+- URL: https://docs.midnight.network/sdks/official/build-a-wallet (same procedure as Item 5)
+  Also: the connector spec above, `Signature` type
+- Where on the page: the `signingMethods` function in src/sign-data.ts, where `verifyingKey` comes from `unshieldedKeystore.getPublicKey()`. In the connector spec, the `Signature` type and "Signing".
+- What it taught:
+  - The `signData` result carries the key, so a DApp needs no separate call. The sample sets `verifyingKey` to `getPublicKey()`. I infer it returns a string from that, because the docs don't state its return type.
+  - The connector spec says the verifying key is 32 bytes (x-only) for Schnorr and 33 bytes (compressed) for ECDSA. The signature is 64 bytes, `r` then `s`.
+  - MIP-0031 section 5 says all three fields are bare lowercase hex with no prefix. That makes 64 hex characters for Schnorr and 66 for ECDSA, and 128 for the signature.
+  - The `scheme` field is optional and defaults to Schnorr (`schnorr_bip340`) until the next major connector version.
+- Checked (2026-11-26):
+  - All confirmed for the documented ledger 8.
+  - **Ledger 9 differs.** Your inference holds for ledger 8 only. In the installed `@midnightntwrk/ledger-v9`, `getPublicKey()` and `signData()` each return a record `{ tag: 'schnorr' | 'ecdsa', value: <hex> }`, not a bare string. The wallet SDK's own type comment says so: `getPublicKey` "answers with a bare hex string on ledger-v8 and a `{tag, value}` record on ledger-v9". So the payload must send both `tag` and `value`. Inside them, the hex lengths match the spec (64 for a Schnorr key, 128 for a signature: seen in the runtime check). This comes from the installed type files, not a docs page.
+- Code pattern from source: the `signingMethods` function in Item 5's block, and the `Signature` type in Item 1's block. Nothing new to transcribe.
+
+### Item 3: verify without a wallet
+- URL: https://docs.midnight.network/api-reference/ledger/functions/verifySignature
+- Where on the page: the function signature block and "Parameters".
+- What it taught:
+  - The signature is `verifySignature(vk: string, data: Uint8Array, signature: string): boolean`, described only as "Verifies if a signature is correct".
+  - The reference covers @midnight/ledger v8.1.3 only. I found no ledger 9 reference page. The Keys and addresses page (https://docs.midnight.network/concepts/keys-and-addresses) shows ledger 9 code importing from `@midnightntwrk/ledger-v9`, so check the package name you install.
+  - The page doesn't say what `data` must be (raw or prefixed) or whether the function hashes internally. The Build a wallet test (Item 5) passes the prefixed bytes and gets true, and passes the raw bytes and gets false.
+  - It doesn't say whether it accepts ECDSA keys. Keys and addresses calls ECDSA an opt-in alternative to Schnorr.
+  - The server still has to check the prefix and the payload itself. MIP-0031 section 7 lists steps for that, such as rejecting a payload that differs from the one it asked for.
+- Checked (2026-11-26):
+  - All confirmed. The page header reads "@midnight/ledger v8.1.3". Keys and addresses imports `DustSecretKey, ZswapSecretKeys` from `@midnightntwrk/ledger-v9`, which is the package we have installed.
+  - In ledger 9 the parameter types are the records from Item 2: `verifySignature(vk: SignatureVerifyingKey, data: Uint8Array, signature: Signature): boolean` (installed type file). Same name, same order.
+- Code pattern from source: (transcribed 2026-11-26 from `api-reference/ledger/functions/verifySignature.md` in midnight-docs at 549bd62.)
+
+```ts
+function verifySignature(
+   vk, 
+   data, 
+   signature): boolean;
+```
+
+### Item 4: public key to address, and the mn_addr_preview1 form
+- URL: https://docs.midnight.network/api-reference/ledger/functions/addressFromKey
+  Also: https://docs.midnight.network/sdks/official/wallet-developer-guide
+  Also: https://docs.midnight.network/concepts/keys-and-addresses
+- Where on the page:
+  - addressFromKey page: the signature block.
+  - Wallet SDK guide: "Address encoding" > "Encode addresses" (the unshielded block) and "Decode addresses".
+  - Keys and addresses: "Unshielded keys" and "Address and key formats" (the table).
+- What it taught:
+  - `addressFromKey(key: string): string` "converts a bare signature public key to its corresponding address". The Encode addresses section wraps the result in `Buffer.from(..., 'hex')`, so it returns hex.
+  - That hex goes into `new UnshieldedAddress(...)`, then `MidnightBech32m.encode(networkId, address).toString()` gives the text form. `MidnightBech32m.parse(text).decode(UnshieldedAddress, networkId)` reverses it, and the Wallet SDK guide's decode step validates the network.
+  - Keys and addresses says the Schnorr address is the SHA-256 hash of the verifying key, always 32 bytes. For ECDSA it is the SHA-256 hash of `midnight:ecdsa:` followed by the key. MIP-0003 (https://github.com/midnightntwrk/midnight-improvement-proposals/blob/main/mips/mip-0003-ecdsa-support.md) says the same.
+  - The Preview form is `mn_addr_preview1...` (Bech32m, human-readable part `mn_addr_preview`). That table also lists Preprod, Mainnet and local forms. An address decodes only for the network in its prefix.
+  - For an exact comparison, decode the indexer's address and compare the 32 bytes. Encoding your own bytes for Preview and comparing strings should also work. The docs don't state which to prefer.
+  - The Wallet SDK guide's example imports `ledger-v8` and carries a ledger 8 warning. The docs don't say whether `addressFromKey` applies the ECDSA prefix, so for an ECDSA key follow the MIP-0003 formula.
+- Checked (2026-11-26):
+  - All confirmed. The guide's source file is `sdks/official/wallet-dev-guide.mdx`; the live URL is wallet-developer-guide.
+  - In ledger 9, `addressFromKey(key: SignatureVerifyingKey): UserAddress`, and the key record carries its `tag`. So an ECDSA key arrives labelled. Whether ledger 9 applies the `midnight:ecdsa:` prefix from the tag is still not stated anywhere I read. We avoid the question: v1 accepts `tag: 'schnorr'` only, the kind our wallets use.
+  - MIP-0003 not re-fetched. Its formula matches the Keys and addresses sentence, which is transcribed in the notes above.
+- Code pattern from source: (transcribed 2026-11-26 from midnight-docs at 549bd62: `api-reference/ledger/functions/addressFromKey.md` and `sdks/official/wallet-dev-guide.mdx`.)
+
+  addressFromKey page:
+
+```ts
+function addressFromKey(key): string;
+```
+
+  Wallet SDK guide, "Encode addresses", the imports and the unshielded part:
+
+```typescript
+import {
+  MidnightBech32m,
+  UnshieldedAddress,
+  ShieldedAddress,
+  DustAddress,
+  ShieldedCoinPublicKey,
+  ShieldedEncryptionPublicKey,
+} from '@midnightntwrk/wallet-sdk-address-format';
+import * as ledger from '@midnight-ntwrk/ledger-v8';
+
+const networkId = 'preprod';
+
+// Encode unshielded address
+const verifyingKey = ledger.signatureVerifyingKey(unshieldedSecretKey.toString('hex'));
+const unshieldedAddress = new UnshieldedAddress(
+  Buffer.from(ledger.addressFromKey(verifyingKey), 'hex')
+);
+const unshieldedBech32m = MidnightBech32m.encode(networkId, unshieldedAddress).toString();
+```
+
+  Wallet SDK guide, "Decode addresses", the unshielded part:
+
+```typescript
+// Parse and decode unshielded address
+const parsedUnshielded = MidnightBech32m.parse(unshieldedBech32m);
+const decodedUnshielded = parsedUnshielded.decode(UnshieldedAddress, networkId);
+```
+
+### Runtime check on ledger 9 (2026-11-26, not a source)
+Run against the installed packages with a random throwaway key from `sampleSigningKey()`; nothing kept. The snippets above applied to ledger 9 (records instead of strings) gave:
+- key `tag: 'schnorr'`, 64 hex; signature 128 hex;
+- `verifySignature` over the prefixed bytes: true; over the raw bytes: false (same as the Item 5 test);
+- a different key: false;
+- `addressFromKey(getPublicKey())` equals the keystore's `getAddress()`, and its Preview Bech32m encoding equals `getBech32Address()`, starting `mn_addr_preview1`.
+
+### Design that follows (OURS, for the build)
+- Agent B signs, with the key that paid, a message built per the prefix rule over a payload made of: our app tag, the network, the resource URL, payTo, amount, asset, and the transaction id. These are the payment requirements plus the proof, so the signature cannot be moved to another request or another payment.
+- The facilitator rebuilds that payload from the requirements it was given and the transaction id (never from the signature), checks the prefix rule, verifies the signature, then checks that `addressFromKey(key)` in Preview Bech32m equals the `owner` of the transaction's spent outputs on the indexer. Schnorr keys only in v1.
+- The x402 resource URL changes per route, not per call. A per-call nonce would need the 402 to carry a server nonce (the spec's other binding option). Without it, binding is to the payer and the requirements; the single-use claim still stops a second use. This is an honest limit to record in DESIGN.md.

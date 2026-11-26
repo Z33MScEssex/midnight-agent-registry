@@ -1,0 +1,92 @@
+// Agent registry for Midnight: AI agents publish a record so other agents can find and call them.
+// Template: midnightntwrk/midnight-examples examples/leaderboard (Topic 8 of the research plan).
+// Record fields follow MIP-0029 "2.4 Metadata Schema" (Topic 4), extended with endpoint and price.
+// Design choices (2026-11-26): add endpoint + price, owner-only updates, counter IDs. See docs/DESIGN.md.
+
+pragma language_version 0.28; // compiler language version, as in both Topic 2 and Topic 8
+
+import CompactStandardLibrary; // gives Map, Counter, persistentHash, pad (Topic 8 block 1)
+
+// One agent's public record. Topic 8's ScoreEntry shape, with MIP-0029's fields in place of the score.
+// Text fields use Opaque<"string">, the text type from Topic 2's hello-world, so a URL is not cut to 32 bytes.
+struct AgentRecord {
+  name: Opaque<"string">,         // MIP-0029: human readable agent name
+  description: Opaque<"string">,  // MIP-0029: what the agent does
+  capabilities: Opaque<"string">, // MIP-0029: capability list, stored as text, e.g. "DATA,PAYMENT" (OURS: text, not an enum list)
+  version: Opaque<"string">,      // MIP-0029: semantic version
+  endpoint: Opaque<"string">,     // EXTENSION (OURS): URL of the agent's A2A Agent Card, MPS-0015 open question 4
+  price: Uint<64>,                // EXTENSION (OURS): price per request in the smallest unit; currency is stated on the Agent Card
+  ownerHash: Bytes<32>            // Topic 8: commitment to the owner's secret key, never the key itself
+}
+
+export ledger agents: Map<Uint<64>, AgentRecord>; // every record, keyed by its agent ID (Topic 8: scores)
+export ledger nextId: Counter;                     // last ID handed out; the first agent gets 1 (Topic 8: nextId)
+
+witness localSecretKey(): Bytes<32>; // the owner's secret key, supplied by TypeScript, never put on chain (Topic 8)
+
+// Topic 8 "ownerCommitment": hash the key with a domain separator so it can be stored and checked later.
+export circuit ownerCommitment(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "agent-registry:owner:"), sk]); // own separator, so it never matches a leaderboard hash
+}
+
+// Register a new agent. Shape of Topic 8 "submitScore": take the next ID, store the record under it.
+// Returns the new agent ID (OURS: MIP-0029 2.1 says public registration hands back an AgentId).
+export circuit register(
+  name: Opaque<"string">,         // agent name
+  description: Opaque<"string">,  // what it does
+  capabilities: Opaque<"string">, // capability list as text
+  version: Opaque<"string">,      // its version
+  endpoint: Opaque<"string">,     // where its Agent Card lives
+  price: Uint<64>                 // what it charges per request
+): Uint<64> {
+  const ownerHash = ownerCommitment(localSecretKey()); // who owns this record, as a hash only
+
+  nextId.increment(1);                                  // move the counter on by one
+  const agentId = disclose(nextId.read() as Uint<64>); // the new record's ID, made public
+
+  agents.insert(agentId, AgentRecord {   // store the record under its ID
+    name: disclose(name),                 // every stored value must be disclosed (Topic 8)
+    description: disclose(description),
+    capabilities: disclose(capabilities),
+    version: disclose(version),
+    endpoint: disclose(endpoint),
+    price: disclose(price),
+    ownerHash: disclose(ownerHash)        // the hash goes public, the key does not
+  });
+  return agentId; // hand the ID back to the caller
+}
+
+// Replace an agent's record. Owner only, matching MIP-0029 updateMetadata "operator only".
+// The checks are Topic 8 "verifyOwnership"; the write is Map insert, which replaces the value at a key.
+export circuit updateRecord(
+  agentId: Uint<64>,              // which record to change
+  name: Opaque<"string">,
+  description: Opaque<"string">,
+  capabilities: Opaque<"string">,
+  version: Opaque<"string">,
+  endpoint: Opaque<"string">,
+  price: Uint<64>
+): [] {
+  assert(agents.member(disclose(agentId)), "agent not found");      // the ID must exist
+  const existing = agents.lookup(disclose(agentId));               // read the current record
+  const callerHash = ownerCommitment(localSecretKey());           // hash the caller's key
+  assert(callerHash == existing.ownerHash, "not the owner");      // only the registering key may update
+
+  agents.insert(disclose(agentId), AgentRecord { // overwrite the record at the same ID
+    name: disclose(name),
+    description: disclose(description),
+    capabilities: disclose(capabilities),
+    version: disclose(version),
+    endpoint: disclose(endpoint),
+    price: disclose(price),
+    ownerHash: existing.ownerHash               // the owner never changes on update
+  });
+}
+
+// Topic 8 "verifyOwnership", unchanged apart from names: prove you own a record without revealing who you are.
+export circuit verifyOwnership(agentId: Uint<64>): [] {
+  assert(agents.member(disclose(agentId)), "agent not found");  // the ID must exist
+  const existing = agents.lookup(disclose(agentId));           // read the record
+  const callerHash = ownerCommitment(localSecretKey());       // hash the caller's key
+  assert(callerHash == existing.ownerHash, "not the owner");  // a passing transaction is the proof
+}

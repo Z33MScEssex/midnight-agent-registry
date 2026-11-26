@@ -1,0 +1,14 @@
+Send tNIGHT to: mn_addr_preview10gdq6hp90n6uvya0jhj7ex3tukftshve3rt5ae3mdfdxr4rpkgesuyjp3k
+2026-11-25 23:33:57        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-25 23:33:57        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-25 23:33:58        RPC-CORE: properties(): ChainProperties:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-25 23:33:58        API/INIT: Error: FATAL: Unable to initialize the API: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+    at #onProviderConnect (file://~/MSc-AI/Project%20work/agent_registry/wallet/node_modules/@polkadot/api/base/Init.js:387:27)
+2026-11-25 23:34:00        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-25 23:34:00        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+tNIGHT received: 5000.000000
+Waiting for full sync (can take a while on a new wallet)...
+Waiting for enough DUST to pay the registration fee...
+Registration submitted.
+DUST balance: 11.450200231668571
+exit 0

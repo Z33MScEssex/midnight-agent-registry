@@ -1,0 +1,24 @@
+# Dependencies and build output
+node_modules/
+contract/managed/
+dist/
+
+# Secrets: wallet seed, owner keys, private state. Never commit these.
+.env
+.env.*
+*.key
+.agent-a-owner.key
+.wallet-state/
+midnight-level-db/
+
+# Raw local logs (trimmed public copies live in docs/logs/)
+docs/*.log
+registry/logs/
+
+# Private working notes
+docs/research_plan.md
+docs/Agent registry on Midnight completed research plan(1).md
+docs/build_log.md
+
+# Third-party clone used for step 2 of the build log (clone it yourself)
+example-hello-world/

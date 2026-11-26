@@ -1,0 +1,41 @@
+
+> agent-registry@0.1.0 register-agent-a
+> MIDNIGHT_NETWORK=preview MIDNIGHT_WALLET_STATE=off tsx --tsconfig tsconfig.demo.json demo/register-agent-a.ts
+
+2026-11-26 09:26:56        RPC-CORE: getBlockHash(blockNumber?: BlockNumber): BlockHash:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:56        RPC-CORE: getRuntimeVersion(at?: BlockHash): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:56        RPC-CORE: chain(): Text:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:56        RPC-CORE: properties(): ChainProperties:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:56        RPC-CORE: methods(): RpcMethods:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:56        API/INIT: Error: FATAL: Unable to initialize the API: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+    at #onProviderConnect (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@polkadot/api/base/Init.js:387:27)
+[09:26:56.142] INFO (1500306): Wallet built from seed; address mn_addr_preview10gdq6hp90n6uvya0jhj7ex3tukftshve3rt5ae3mdfdxr4rpkgesuyjp3k
+[09:26:56.143] INFO (1500306): Starting wallet...
+[09:26:56.163] INFO (1500306): Syncing wallet...
+2026-11-26 09:26:57        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:57        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:58        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:26:58        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+[09:32:07.679] INFO (1500306): Wallet sync complete after 12042 emissions
+[09:32:07.685] INFO (1500306): Waiting for >=1 spendable DUST coin(s) (timeout 1800000ms)...
+[09:32:07.687] INFO (1500306): Waiting for >=5.000000 DUST at the latest block...
+[09:32:07.708] INFO (1500306): DUST ready.
+[09:32:07.708] INFO (1500306): ALICE: funded and ready.
+[09:32:07.709] INFO (1500306): New owner key saved to ~/project/agent_registry/registry/.agent-a-owner.key (owner-only).
+[09:32:08.156] INFO (1500306): Joined registry
+    address: "05cb427aef81572d8b211ffb4f5ab6242b3c04f3604c0fb77dfa61d3c6235a8a"
+[09:32:08.156] INFO (Echo agent/1500306): Registering agent
+    endpoint: "http://localhost:41241/.well-known/agent-card.json"
+[09:32:27.137] INFO (1500306): Registered as agent 2
+[09:32:27.177] INFO (1500306): On-chain record
+    record: {
+      "id": 2,
+      "name": "Echo agent",
+      "description": "Replies to a short text message. Demo agent for the Midnight agent registry.",
+      "capabilities": "DATA",
+      "version": "1.0.0",
+      "endpoint": "http://localhost:41241/.well-known/agent-card.json",
+      "price": "0",
+      "ownerHash": "5121ba62c9c98ff0fa024cba42eb5fdd9d946510e822b5be01dffc8f933e849a"
+    }
+exit 0

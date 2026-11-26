@@ -1,0 +1,84 @@
+
+> agent-registry@0.1.0 test:preview
+> MIDNIGHT_NETWORK=preview npm test --
+
+
+> agent-registry@0.1.0 test
+> NODE_OPTIONS='--experimental-vm-modules' vitest run --exclude 'src/**/*.sim.test.ts'
+
+
+ RUN  v5.1.2 ~/project/agent_registry/registry
+
+Sourcemap for "~/project/agent_registry/registry/contract/managed/registry/contract/index.js" points to missing source files
+2026-11-26 09:10:48        RPC-CORE: call(method: Text, data: Bytes, at?: BlockHash): Bytes:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:10:48        API/INIT: error with state_call::Metadata_metadata_versions, rpc::state::get_metadata will be used
+2026-11-26 09:10:48        RPC-CORE: getMetadata(at?: BlockHash): Metadata:: WebSocket is not connected
+Failed WS Request: {"method":"state_getMetadata","params":[]}
+2026-11-26 09:10:48        API/INIT: Error: FATAL: Unable to initialize the API: WebSocket is not connected
+Failed WS Request: {"method":"state_getMetadata","params":[]}
+    at ApiPromise.#onProviderConnect (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@polkadot/api/base/Init.js:387:27)
+[09:10:48.176] INFO (1485439): Wallet built from seed; address mn_addr_preview10gdq6hp90n6uvya0jhj7ex3tukftshve3rt5ae3mdfdxr4rpkgesuyjp3k
+[09:10:48.176] INFO (1485439): Starting wallet...
+[09:10:48.196] INFO (1485439): Syncing wallet...
+2026-11-26 09:10:49        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:10:49        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:10:50        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-26 09:10:50        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+[09:16:04.677] INFO (1485439): Wallet sync complete after 12039 emissions
+[09:16:04.681] INFO (1485439): Waiting for >=1 spendable DUST coin(s) (timeout 1800000ms)...
+[09:16:04.682] INFO (1485439): Waiting for >=5.000000 DUST at the latest block...
+[09:16:14.694] INFO (1485439):   DUST 0.000000 / 5.000000
+[09:16:19.831] INFO (1485439): DUST ready.
+[09:16:19.831] INFO (1485439): ALICE: funded and ready.
+Wallet.Sync: [object Object]
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@midnightntwrk/wallet-sdk-dust-wallet/dist/v2/Sync.js:505:240
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:280:78
+    at onFail (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:287:20)
+    at Object.failCase (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:549:29)
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:603:44
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/Function.js:107:18
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:547:10
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/Function.js:98:18
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:285:58
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/Function.js:98:18 {
+  _tag: 'Wallet.Sync'
+}
+Wallet.Sync: [object Object]
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@midnightntwrk/wallet-sdk-unshielded-wallet/dist/v2/Sync.js:96:261
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:280:78
+    at onFail (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:287:20)
+    at Object.failCase (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:549:29)
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:603:44
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/Function.js:107:18
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:547:10
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/Function.js:98:18
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/internal/cause.js:285:58
+    at file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/effect/dist/esm/Function.js:98:18 {
+  _tag: 'Wallet.Sync'
+}
+[09:16:44.937] INFO (1485439): Deployed registry
+    address: "05cb427aef81572d8b211ffb4f5ab6242b3c04f3604c0fb77dfa61d3c6235a8a"
+[09:16:44.939] INFO (1485439): Registry deployed at: 05cb427aef81572d8b211ffb4f5ab6242b3c04f3604c0fb77dfa61d3c6235a8a
+[09:16:44.993] INFO (Weather agent/1485439): Registering agent
+    endpoint: "http://localhost:41241/.well-known/agent-card.json"
+[09:17:09.013] INFO (1485439): Joined registry
+    address: "05cb427aef81572d8b211ffb4f5ab6242b3c04f3604c0fb77dfa61d3c6235a8a"
+[09:17:09.186] INFO (1485439): Updating agent
+    id: "1"
+    endpoint: "https://weather.example/agent-card.json"
+ ✓ src/test/registry.test.ts (6 tests) 405984ms
+   ✓ Agent registry (preview) (6)
+     ✓ deploys an empty registry 25149ms
+     ✓ agent A registers and gets ID 1 23774ms
+     ✓ a second party joins and finds agent A by ID 418ms
+     ✓ the owner updates the endpoint and price 23601ms
+[09:17:32.788] INFO (1485439): Updating agent
+    id: "1"
+    endpoint: "https://evil.example"
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  09:10:44
+   Duration  408.67s (tests 99%, import 1%)
+
+exit 0

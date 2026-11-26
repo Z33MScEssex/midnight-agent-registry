@@ -1,0 +1,57 @@
+yarn run v1.22.22
+warning ../../package.json: No license field
+$ MIDNIGHT_NETWORK=preview yarn test
+warning ../../package.json: No license field
+$ NODE_OPTIONS='--experimental-vm-modules' vitest run
+
+ RUN  v4.1.11 ~/project/agent_registry/example-hello-world
+
+[23:40:02.277] INFO (1191542): Initializing wallet builder for preview
+[23:40:02.333] INFO (1191542): Creating dust wallet with params: {"forks":{"v9":"2000000"},"indexerClientConnection":{"indexerHttpUrl":"https://indexer.preview.midnight.network/api/v4/graphql","indexerWsUrl":"wss://indexer.preview.midnight.network/api/v4/graphql/ws"},"provingServerUrl":"http://127.0.0.1:6300/","networkId":"preview","relayURL":"wss://rpc.preview.midnight.network/","txHistoryStorage":{},"costParameters":{"ledgerParams":{"__wbg_ptr":4654640},"additionalFeeOverhead":"1000","feeBlocksMargin":5},"skipLedgerV8DustHistory":true}
+[23:40:03.269] INFO (1191542): Syncing wallet...
+[23:40:03.247] INFO (1191542): Wallet built from seed
+[23:40:03.248] INFO (1191542): Starting wallet...
+[23:40:03.269] INFO (1191542): Syncing wallet...
+stderr | src/test/hw.test.ts > Hello World Contract (preview)
+2026-11-25 23:40:04        RPC-CORE: getRuntimeVersion(at?: BlockHash): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+2026-11-25 23:40:04        RPC-CORE: properties(): ChainProperties:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+
+stderr | src/test/hw.test.ts > Hello World Contract (preview)
+2026-11-25 23:40:04        API/INIT: Error: FATAL: Unable to initialize the API: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+    at #onProviderConnect (file://~/MSc-AI/Project%20work/agent_registry/example-hello-world/node_modules/@polkadot/api/base/Init.js:387:27)
+
+stderr | src/test/hw.test.ts > Hello World Contract (preview)
+2026-11-25 23:40:04        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+
+stderr | src/test/hw.test.ts > Hello World Contract (preview)
+2026-11-25 23:40:04        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+
+stderr | src/test/hw.test.ts > Hello World Contract (preview)
+2026-11-25 23:40:04        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+
+stderr | src/test/hw.test.ts > Hello World Contract (preview)
+2026-11-25 23:40:04        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from wss://rpc.preview.midnight.network/: 1000:: Normal Closure
+
+[23:45:03.969] INFO (1191542): Sync complete
+[23:45:03.971] INFO (1191542): Wallet balances after sync - Shielded: {}, Unshielded: {"0000000000000000000000000000000000000000000000000000000000000000":"5000000000"}, Dust: "24925410231668571"
+[23:45:03.976] INFO (1191542): Your wallet address is: mn_addr_preview10gdq6hp90n6uvya0jhj7ex3tukftshve3rt5ae3mdfdxr4rpkgesuyjp3k, waiting for NIGHT funds...
+[23:45:03.977] INFO (1191542): Syncing wallet...
+[23:45:03.979] INFO (1191542): Sync complete
+[23:45:03.980] INFO (1191542): Wallet balances after sync - Shielded: {}, Unshielded: {"0000000000000000000000000000000000000000000000000000000000000000":"5000000000"}, Dust: "24925410231668571"
+[23:45:03.980] INFO (1191542): Your wallet NIGHT balance is: 5000000000
+[23:45:03.980] INFO (1191542): Wallet NIGHT balance on 'preview': 5000000000
+[23:45:03.984] INFO (1191542): Providers initialized on 'preview'. Ready to test!
+[23:45:03.987] INFO (1191542): Creating private state...
+[23:45:20.939] INFO (1191542): Setting the contract address...
+[23:45:20.939] INFO (1191542): Contract deployed at: 2b500cdbc179127045413736d4bbebd2292b62e76ecfadc263c6c8689ecf4b44
+ ✓ src/test/hw.test.ts (2 tests) 335822ms
+     ✓ Deploys the contract  16991ms
+     ✓ Stores Hello World!  17086ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:39:59
+   Duration  338.52s (transform 94ms, setup 0ms, import 2.57s, tests 335.82s, environment 0ms)
+
+Done in 339.20s.
+exit 0

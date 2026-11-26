@@ -1,0 +1,5 @@
+node_modules/
+.env.*
+.wallet-state/
+contract/managed/
+.agent-a-owner.key

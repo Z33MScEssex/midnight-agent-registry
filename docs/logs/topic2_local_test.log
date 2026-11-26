@@ -1,0 +1,58 @@
+yarn run v1.22.22
+warning ../../package.json: No license field
+$ MIDNIGHT_NETWORK=local yarn test
+warning ../../package.json: No license field
+$ NODE_OPTIONS='--experimental-vm-modules' vitest run
+
+ RUN  v4.1.11 ~/project/agent_registry/example-hello-world
+
+[23:25:30.493] INFO (1178303): Initializing wallet builder for undeployed
+[23:25:30.547] INFO (1178303): Creating dust wallet with params: {"forks":{"v9":"2000000"},"indexerClientConnection":{"indexerHttpUrl":"http://127.0.0.1:8088/api/v4/graphql","indexerWsUrl":"ws://127.0.0.1:8088/api/v4/graphql/ws"},"provingServerUrl":"http://127.0.0.1:6300/","networkId":"undeployed","relayURL":"ws://127.0.0.1:9944/","txHistoryStorage":{},"costParameters":{"ledgerParams":{"__wbg_ptr":4654640},"additionalFeeOverhead":"1000","feeBlocksMargin":5},"skipLedgerV8DustHistory":true}
+[23:25:30.684] INFO (1178303): Syncing wallet...
+[23:25:30.685] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:30.685] INFO (1178303): Wallet synced state emission (synced=false, protocol=Settled): { shielded=false, unshielded=false, dust=false }
+[23:25:30.750] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:30.665] INFO (1178303): Wallet built from seed
+[23:25:30.666] INFO (1178303): Starting wallet...
+[23:25:30.684] INFO (1178303): Syncing wallet...
+[23:25:30.857] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:30.858] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:30.862] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:30.925] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:31.032] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:31.085] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+stderr | src/test/hw.test.ts > Hello World Contract (local)
+2026-11-25 23:25:31        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from ws://127.0.0.1:9944/: 1000:: Normal Closure
+
+stderr | src/test/hw.test.ts > Hello World Contract (local)
+2026-11-25 23:25:31        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from ws://127.0.0.1:9944/: 1000:: Normal Closure
+
+[23:25:31.134] INFO (1178303): Wallet synced state emission: { shielded=false, unshielded=false, dust=false }
+[23:25:31.171] INFO (1178303): Wallet synced state emission: { shielded=true, unshielded=false, dust=false }
+stderr | src/test/hw.test.ts > Hello World Contract (local)
+2026-11-25 23:25:31        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from ws://127.0.0.1:9944/: 1000:: Normal Closure
+
+stderr | src/test/hw.test.ts > Hello World Contract (local)
+2026-11-25 23:25:31        RPC-CORE: subscribeRuntimeVersion(): RuntimeVersion:: disconnected from ws://127.0.0.1:9944/: 1000:: Normal Closure
+
+[23:25:31.184] INFO (1178303): Wallet synced state emission: { shielded=true, unshielded=false, dust=true }
+[23:25:31.204] INFO (1178303): Wallet synced state emission: { shielded=true, unshielded=true, dust=true }
+[23:25:31.206] INFO (1178303): Wallet synced state emission: { shielded=true, unshielded=true, dust=true }
+[23:26:00.689] INFO (1178303): Wallet synced state emission: { shielded=true, unshielded=true, dust=true }
+[23:26:00.690] INFO (1178303): Wallet synced state emission (synced=true, protocol=Settled): { shielded=true, unshielded=true, dust=true }
+[23:26:00.690] INFO (1178303): Sync complete
+[23:26:00.692] INFO (1178303): Wallet balances after sync - Shielded: {"0000000000000000000000000000000000000000000000000000000000000000":"250000000000000","0000000000000000000000000000000000000000000000000000000000000001":"50000000000000","0000000000000000000000000000000000000000000000000000000000000002":"50000000000000"}, Unshielded: {"0000000000000000000000000000000000000000000000000000000000000000":"250000000000000"}, Dust: "1250000000000000000000000"
+[23:26:00.702] INFO (1178303): Providers initialized on 'local'. Ready to test!
+[23:26:00.704] INFO (1178303): Creating private state...
+[23:26:21.304] INFO (1178303): Setting the contract address...
+[23:26:21.304] INFO (1178303): Contract deployed at: ec7fabb3aafd9ab3baf1b7990053f2ca613d432a0b4cfb8fcabc3ae30e6a1012
+ ✓ src/test/hw.test.ts (2 tests) 67963ms
+     ✓ Deploys the contract  20615ms
+     ✓ Stores Hello World!  17097ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:25:28
+   Duration  69.82s (transform 62ms, setup 0ms, import 1.76s, tests 67.96s, environment 0ms)
+
+Done in 70.26s.

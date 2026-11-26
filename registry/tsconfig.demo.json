@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "verbatimModuleSyntax": false },
+  "include": ["demo/**/*.ts", "api/**/*.ts", "contract/**/*.ts", "src/*.ts"]
+}

@@ -1,0 +1,9 @@
+
+> agent-registry@0.1.0 agent-a
+> tsx --tsconfig tsconfig.demo.json demo/agent-a.ts
+
+[AgentA] Listening on http://localhost:41241/
+[AgentA] Agent Card: http://localhost:41241/.well-known/agent-card.json
+[SampleAgentExecutor] Processing message 7b5d1319-455e-4a63-b035-c23a13a51086 for task e3ec4db9-d077-42db-baa3-421cf433b6b4 (context: 4ef5f8cb-8f50-48d3-83e9-60d0edbf0562)
+[SampleAgentExecutor] Prompt response: Hello World! Nice to meet you!
+[SampleAgentExecutor] Task e3ec4db9-d077-42db-baa3-421cf433b6b4 finished with state: completed

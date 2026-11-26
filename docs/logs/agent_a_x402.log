@@ -1,0 +1,6 @@
+[AgentA] Paywall: 100000 STAR per call, paid to mn_addr_preview1wejrdqkp580uxaf4ceh92s6wz7zg7fvdsqygc8t9xlmy8gwukwyq9ejh3l
+[AgentA] Listening on http://localhost:41241/
+[AgentA] Agent Card: http://localhost:41241/.well-known/agent-card.json
+[SampleAgentExecutor] Processing message 1f5d88bc-0049-4e3f-87dd-f86e601744ef for task 6d11dba5-5e8c-4967-a47c-24d306000614 (context: a0dcd2ba-eb7d-492e-9afd-9c5ba6ced373)
+[SampleAgentExecutor] Prompt response: Hello World! Nice to meet you!
+[SampleAgentExecutor] Task 6d11dba5-5e8c-4967-a47c-24d306000614 finished with state: completed

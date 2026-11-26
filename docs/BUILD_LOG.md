@@ -93,3 +93,34 @@ record, and IDs come from a counter. Reasons are in [`DESIGN.md`](DESIGN.md).
   outcome, but the message could be clearer.
 - The A2A samples don't fit the template's `verbatimModuleSyntax` TypeScript rule. So the demo has
   its own `tsconfig.demo.json` with that rule off, and the sample code stays verbatim.
+
+## 7. x402 payments on Midnight (2026-11-26)
+
+Agent B now pays Agent A per call, in tNIGHT on Midnight, using the x402 protocol. Topics 10 to 13 in
+[`research_sources.md`](research_sources.md) hold the sources.
+
+- **Design, all from the x402 specs:** the `exact` scheme in the "client-submitted (payment proof)"
+  family, which the generic `exact` spec says must use the `upfront` flow. Agent B pays first and sends
+  the transaction identifier as proof. The facilitator looks it up on Midnight's indexer and claims it
+  once (spec 7.2: settle may consist of "marking a transaction as used").
+- [`demo/midnight-x402.ts`](../registry/demo/midnight-x402.ts): the scheme, written as the three
+  plug-ins the x402 SDK defines (server, client, facilitator).
+- [`demo/facilitator.ts`](../registry/demo/facilitator.ts): the x402 basic facilitator example with our
+  scheme registered for `midnight:preview`.
+- Agent A puts an x402 paywall on its A2A endpoint. Its Agent Card stays free.
+- Agent B caps what it will pay at the price in Agent A's on-chain record.
+
+Results on Preview:
+1. **Unpaid call:** HTTP 402 with a spec-shaped `PAYMENT-REQUIRED` header (100,000 STAR, payTo Agent A, `upfront`).
+2. **Overpriced paywall** (the record said 0, the paywall asked 100,000): the x402 SDK's spend control
+   refused, and Agent B's wallet never opened. [`logs/x402_refusal_test.log`](logs/x402_refusal_test.log)
+3. **Paid call, pass:** Agent B paid 100,000 STAR (0.1 tNIGHT) in transaction
+   `0021c641126186897eb11d3937fc22e4235f96995a42a17eb0f8ea9f9dd164e7b4`. The facilitator confirmed the
+   payer, recipient, asset and amount on the indexer, and Agent A answered.
+   [`logs/x402_paid_test.log`](logs/x402_paid_test.log), [`logs/facilitator.log`](logs/facilitator.log)
+4. **Replay refused:** the same proof sent again got 402 `payment_already_used`, and Agent A handled
+   exactly one message.
+
+Known limit: the spec asks each payment to be bound to one request. A Midnight public transfer carries
+no memo, so this version uses the spec's fallback: one facilitator per receiving address, with a
+single-use store. See [`DESIGN.md`](DESIGN.md#payments-x402).

@@ -1649,3 +1649,908 @@ const dustBalance = (await Rx.firstValueFrom(wallet.state())).dust.balance(new D
 console.log(`DUST balance: ${formatDust(dustBalance)}`);
 await wallet.stop();
 ```
+
+---
+
+## x402 on Midnight (added 2026-11-26)
+
+**Goal:** Agent A answers an unpaid call with HTTP 402 and its price. Agent B pays in tNIGHT on Midnight,
+retries with proof of payment, and gets the answer. A facilitator we run ourselves checks the payment
+on chain before Agent A replies. We use x402's real headers and its plug-in interfaces, not a
+look-alike.
+
+**Design calls already made (from the registry work):**
+- The price Agent A asks for must not be more than the `price` in its on-chain record. Agent B
+  checks this before paying (OURS).
+- Each payment can be used once. The facilitator remembers transaction IDs it has accepted (OURS).
+
+**Needs no research (already in the project or the installed packages):**
+
+| Need | Where it is already |
+|---|---|
+| The 402 flow and the three V2 headers (PAYMENT-REQUIRED, PAYMENT-SIGNATURE, PAYMENT-RESPONSE) | Topic 6 |
+| Express seller middleware and fetch buyer wrapper, as used for USDC | Topic 6 |
+| Plug-in names: `SchemeNetworkClient.createPaymentPayload`, `SchemeNetworkFacilitator` (verify, settle), `x402Facilitator.register(network, facilitator)` | Type definitions in `@x402/core` 2.32.0 (checked 2026-11-26). Names only; Topic 10 must give the documented way to use them |
+| A wallet that pays its own fees | Topic 9 and `wallet/` |
+| Sending tNIGHT: `transferTransaction`, `signRecipe`, `finalizeRecipe`, submit | Partly: node-server-wallet page, "Funding the wallet on the local network". That page is ledger 8 era (Topic 3 caveat), so Topic 12 confirms it for wallet SDK 2.0.1 / ledger 9 |
+
+## Topic 10: x402, adding a new payment scheme or network
+What to find: the documented way to plug a new network into x402, and the exact fields of the payment request and payment proof.
+- URL: https://docs.x402.org/core-concepts/network-and-token-support (how to add a network)
+  Also: https://github.com/x402-foundation/x402/blob/main/specs/CONTRIBUTING.md (how to propose a new scheme or chain spec)
+  Also: https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md (field definitions)
+  Also: https://docs.x402.org/schemes/overview (schemes in a 402 response)
+- Where on the page:
+  - Networks page: headings "Production Network Support" (protocol, runtime and production support), "Adding Support for New Networks" > "Runtime Registration", "Production checklist for a new EVM network", "Contributing a New Default Asset".
+  - CONTRIBUTING: headings "Specification Types" > "Schemes", "Proposing a New Spec" > "Step 1: Open a Discussion", "Step 2: Write the Spec", "Step 3: Submit PR", and "Templates" > "Scheme Implementation Template" (the file scheme_impl_template.md in the specs/ folder).
+  - Spec v2: "5.1 PaymentRequired Schema" > "5.1.2 Field Descriptions" (fields of the payment request); "5.2 PaymentPayload Schema" > "5.2.2 Field Descriptions" (fields of the payment proof); "6. Payment Schemes (The Logic)".
+  - Schemes overview: heading "Schemes in a 402 Response" and "Specs".
+- What it taught:
+  - Three levels of support: protocol (x402 can express the requirements and payload), runtime (a network and scheme are registered in your code), and production (a settlement path exists, through a facilitator or self-facilitation).
+  - "Runtime Registration" says you can use any EVM network in your own server code without changing x402 source or sending a PR, by registering a scheme with a CAIP-2 network ID (eip155:<chainId>). It names x402ResourceServer, HTTPFacilitatorClient and ExactEvmScheme (TypeScript), with Go and Python equivalents. It also says you need a facilitator that supports the network, or you run your own. The registration section is written for EVM networks only. For a non-EVM network such as Midnight, the page gives no registration route; the specs process in CONTRIBUTING is the nearest documented path (my reading, not stated on either page).
+  - CONTRIBUTING: open a GitHub discussion first (problem, approach, why existing schemes don't suffice), write the spec from the template, then send a PR. Scheme specs go under specs/schemes/<scheme_name>/, with scheme_<name>.md for the overview and scheme_<name>_<chain>.md per chain. It describes no separate networks folder or network-only process.
+  - Payment request (spec v2, 5.1.2): PaymentRequired has x402Version, error, resource, accepts, extensions. Each entry in accepts (PaymentRequirements) has scheme, network, amount, asset, payTo, maxTimeoutSeconds, extra. The resource object has url, description, mimeType, serviceName, tags, iconUrl.
+  - Payment proof (spec v2, 5.2.2): PaymentPayload has x402Version, resource, accepted, payload, extensions. `accepted` repeats the chosen PaymentRequirements. The spec lists payload sub-fields signature and authorization (from, to, value, validAfter, validBefore, nonce). Those look specific to the EVM exact scheme, so the payload content for a new network would be defined by that scheme's own spec. That is my reading; check the exact scheme page under specs/schemes/exact.
+  - The schemes overview page shows example accepts entries but gives no formal field definition, so use the spec for field names.
+  - Not found: any mention of Midnight on these pages.
+- Checked (2026-11-26): all four pages reachable, headings as described.
+  - Confirmed: the spec says `payload` is "Scheme-specific payment data" and gives the EVM fields only "For example". Your reading is right.
+  - Confirmed: Runtime Registration is written for EVM only.
+  - Added from the same pages, because it shapes the Midnight design. Spec 6.1 defines an `upfront` payment flow (settle, then serve), "Required by networks with no pull-settlement primitive". Spec 7.2 says that for "client-prepaid methods, settle MAY bind a payment proof to the request (for example, consuming a challenge or marking a transaction as used) after read-only observation of ledger or backend state". The schemes overview says "The `exact` scheme supports both `authorization` (default) and `upfront` flows on all networks. Servers opt in per route by setting `extra.paymentFlow: "upfront"`". So a Midnight payment fits as `exact` with the `upfront` flow: the buyer pays first, and settle checks the ledger and marks the payment used.
+  - Networks page, "Specifying Payment Amounts": a price string like "$0.01" needs a chain default stablecoin; "TokenAmount ... Works on any chain". tNIGHT has no USD default, so price must be an explicit amount in atomic units (STAR).
+  - Not transcribed: the schemes overview JSON (spec 5.1.1 covers the same shape).
+  - Model chain (added below): specs/schemes/exact/ has per-chain files, including scheme_exact_cardano.md. Cardano is a UTXO chain like Midnight's NIGHT ledger, so it may be the closest model for a Midnight scheme spec. Read into the plan below.
+- Code pattern from source: (transcribed 2026-11-26. GitHub files copied byte for byte from raw.githubusercontent.com, x402-foundation/x402 main at 17f6f4f. docs.x402.org blocks copied from the page's own markdown and checked by SHA-256 against the rendered live page: match.)
+
+  Networks page, "Adding Support for New Networks" > "Runtime Registration" (TypeScript tab):
+
+```typescript
+import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
+
+const facilitatorClient = new HTTPFacilitatorClient({
+  url: "https://your-facilitator.com"  // Facilitator that supports your network
+});
+
+const server = new x402ResourceServer(facilitatorClient);
+server.register("eip155:*", new ExactEvmScheme());
+
+const routes = {
+  "GET /api/data": {
+    accepts: [{
+      scheme: "exact",
+      price: "$0.001",
+      network: "eip155:43114",  // Avalanche mainnet
+      payTo: "0xYourAddress",
+    }],
+  },
+};
+```
+
+  Spec v2, "5.1.1 JSON Payload" (example PaymentRequired):
+
+```json
+{
+  "x402Version": 2,
+  "error": "PAYMENT-SIGNATURE header is required",
+  "resource": {
+    "url": "https://api.example.com/premium-data",
+    "description": "Access to premium market data",
+    "mimeType": "application/json",
+    "serviceName": "Example Market Data",
+    "tags": ["market-data", "finance"],
+    "iconUrl": "https://api.example.com/icon.png"
+  },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:84532",
+      "amount": "10000",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+      "maxTimeoutSeconds": 60,
+      "extra": {
+        "name": "USDC",
+        "version": "2"
+      }
+    }
+  ],
+  "extensions": {}
+}
+```
+
+  Spec v2, "5.2.1 JSON Structure" (example PaymentPayload):
+
+```json
+{
+  "x402Version": 2,
+  "resource": {
+    "url": "https://api.example.com/premium-data",
+    "description": "Access to premium market data",
+    "mimeType": "application/json"
+  },
+  "accepted": {
+    "scheme": "exact",
+    "network": "eip155:84532",
+    "amount": "10000",
+    "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+    "maxTimeoutSeconds": 60,
+    "extra": {
+      "name": "USDC",
+      "version": "2"
+    }
+  },
+  "payload": {
+    "signature": "0x2d6a7588d6acca505cbf0d9a4a227e0c52c6c34008c8e8986a1283259764173608a2ce6496642e377d6da8dbbf5836e9bd15092f9ecab05ded3d6293af148b571c",
+    "authorization": {
+      "from": "0x857b06519E91e3A54538791bDbb0E22373e36b66",
+      "to": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+      "value": "10000",
+      "validAfter": "1740672089",
+      "validBefore": "1740672154",
+      "nonce": "0xf3746613c2d920b5fdabc0856f2aeb2d4f88ee6037b8cc5d04a71a4462f13480"
+    }
+  },
+  "extensions": {}
+}
+```
+
+  CONTRIBUTING, "Templates" > "Scheme Implementation Template":
+
+```markdown
+# Scheme: `<name>` `<network kind>`
+
+## Summary
+
+Summarize the purpose and behavior of your scheme here. Include example use cases.
+
+## Payment header payload
+
+Document how to construct the payment header payload for your scheme.
+
+## Verification
+
+Document the steps needed to verify a payment for your scheme is valid.
+
+## Settlement
+
+Document how to settle a payment for your scheme.
+
+## Appendix
+```
+
+  - Added 2026-11-26: https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact.md (the generic `exact` spec, linked from the schemes overview) and https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_cardano.md (closest model chain). Both read from main at 17f6f4f.
+    - Generic exact spec, "Asset Transfer Method Families" > "Client-submitted (payment proof)": "The client submits the payment itself and presents a proof of it; settle validates that proof and binds it to the request." Methods in this family "MUST use `upfront`". Each method must satisfy: instrument and proof advertised in the requirements, proof carried in `PaymentPayload.payload`; request binding (one of: an instrument unique to the request, a server-issued nonce carried in the payment, a payer signature over the requirements, or a payee commitment); a single-use claim keyed on the CAIP-2 network joined to the payment's transaction id; a retention bound; amount acceptance rules; a declared finality event; and failure disposition. This is the family our Midnight design belongs to.
+    - Request binding gap (ours to note): a Midnight unshielded transfer has no memo field to carry a nonce, and verifying a payer signature server-side is not in our sources. Version 1 relies on the spec's own fallback: an unbound proof "would have to be checked against a store shared by every facilitator serving that `payTo`". We run exactly one facilitator per `payTo`, so its single-use store is that shared store. Signature binding is a later topic.
+    - Cardano spec: every Cardano method is "facilitator-submitted" (the client signs, the facilitator broadcasts) with the `authorization` flow, so it is the other family. Useful as a model for: network ids `cardano:preview` style (human-readable, CAIP-2 syntax), the Facilitator Verification Rules (network, recipient, amount, asset exact match, replay, confirmation), the pending-settlement handling, and "Duplicate Settlement Mitigation": key on the canonical transaction id, insert the claim atomically before the first await, keep it until the payment can no longer land.
+
+  Cardano spec, "Protocol Flow" > "`PaymentRequired`" > "Default Schema":
+
+```js
+{
+  "x402Version": 2,
+  "error": "PAYMENT-SIGNATURE header is required",
+  "resource": {
+    "url": "https://api.example.com/premium-data",
+    "description": "Access to premium market data",
+    "mimeType": "application/json"
+  },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "cardano:mainnet", // cardano:preprod or cardano:preview for public testnets
+      "amount": "10000", // atomic units of `asset`; USDM has 6 decimals, so 1 USDM = 1000000
+      "asset": "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad.0014df105553444d", // ${policyId}.${assetNameHex} — USDM on Cardano Mainnet. BOTH parts differ on Preprod: policy id e675b46e4d2242c991a8932a99db3044e80515ae14b4c4ccf6b3f4c9, asset name 0014df10745553444d. The asset name is the CIP-68 (333) label followed by the hex of 'USDM' (mainnet) / 'tUSDM' (preprod)
+      "payTo": "addr1...",
+      "maxTimeoutSeconds": 600, // Has to be set to a higher amount of time because of the Cardano Network speed
+      "extra": {
+        "confirmationPolicy": { "l1Confirmations": 1 }, // optional; defaults to 1
+        // In case of default address-to-address payments, this may be empty or contain additional metadata
+      }
+    }
+  ]
+}
+```
+
+  Cardano spec, "`PAYMENT-SIGNATURE` Header Payload" (payload example):
+
+```js
+{
+  "transaction": "hKQA2QECgYJYIGYsv2RfzYkU64kRW4OXCpUEk90vuvOd6juW6MvcEyk5AAGCglgdYSIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiKCGgAQC/ihWBzEjLs9XlftVuJ2vEX5mrOavpTmzXrDn7QC2ketoUgAFN8QVVNETRknEIJYOQEP3HgAI9i+fJ/zpr3A2NOyY70MwSRIxAlI779C5VeJA1IJXxz2/St9Gijjw8sCn0jPNP+JCijRdoIaAR6EM6FYHMSMuz1eV+1W4na8Rfmas5q+lObNesOftALaR62hSAAU3xBVU0RNGgAPGzACGgACnNUDGgviTxGhANkBAoGCWCB+oJo0rrsTyYQccTl7HKv+xd35UEBSk97klsrC9DdIClhAtDdExgNy1HNn3MLUiJR/xTpzZ7pa719nxZtGwL9HBdwc4y56ZTibS5eLe3Z2h8gPKsqyBxZSJ418iB1DR4ENA/X2",
+  "nonce": "662cbf645fcd8914eb89115b83970a950493dd2fbaf39dea3b96e8cbdc132939#0"
+}
+```
+
+  Cardano spec, "`PAYMENT-RESPONSE` Header Payload":
+
+```js
+{
+  "success": true, // true or false
+  "network": "cardano:mainnet",
+  "transaction": "2f9a7b3c...", // Transaction hash of the payment if successful
+  "extra": {
+    "status": "confirmed", // "mempool" when authenticated mempool evidence is strongest
+    "confirmations": 1
+  },
+  // Optional error field in case of failure
+  "errorReason": "Utxo not found in utxo set" // Example error reason
+}
+```
+
+## Topic 11: x402, running your own facilitator
+What to find: an example facilitator server with its "verify" and "settle" endpoints, and how a server points at it.
+- URL: https://github.com/x402-foundation/x402/tree/main/examples/typescript/facilitator (example folder; the basic/ subfolder is described as a minimal facilitator exposing /verify and /settle)
+  Also: https://docs.x402.org/core-concepts/facilitator (how a server points at a facilitator)
+  Also: https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md (endpoint definitions)
+  Also: https://docs.x402.org/core-concepts/network-and-token-support and https://docs.x402.org/dev-tools/facilitators
+- Where on the page:
+  - Example repo: the facilitator/ folder lists basic/ (minimal, /verify and /settle), advanced/, upto/, batch-settlement/, auth-capture/ and builder-code/. Go and Python example folders also exist under examples/.
+  - Facilitator concepts page: headings "Choosing a Facilitator Path", "Interaction Flow", "Facilitator HTTP request timeout (resource server side)" (shows an HTTPFacilitatorClient built with a url and timeoutMs).
+  - Spec v2: "7. Facilitator Interface" > "7.1 POST /verify", "7.2 POST /settle", "7.3 GET /supported".
+  - Networks page: "Running Your Own Facilitator" (prerequisites).
+  - Facilitators page: heading "Running your own or self-facilitating".
+- What it taught:
+  - A facilitator is an optional service that verifies a payment payload and settles it onchain for the resource server. The server can also verify and settle on its own.
+  - Spec endpoints: POST /verify takes x402Version, paymentPayload and paymentRequirements, and returns isValid and payer (or invalidReason on failure). POST /settle takes the same three fields and returns success, payer, transaction and network (or errorReason on failure). GET /supported lists what the facilitator supports.
+  - Pointing a server at it: the concepts page shows the server creating an HTTPFacilitatorClient with the facilitator's base url. The Runtime Registration section on the networks page uses the same class with a placeholder facilitator URL.
+  - "Running Your Own Facilitator" lists three prerequisites: an RPC endpoint for the network, a wallet with native tokens for gas, and the x402 facilitator code. The facilitators page gives no setup steps or code for self-hosting.
+  - I could not open the basic/ subfolder or its files, so I have not confirmed the file names or its README. (Answered below.)
+  - Also on the facilitator page: "Settlement pending and auto-recovery" explains that a settle result can be pending, which matters if you build a Midnight settlement.
+- Checked (2026-11-26):
+  - Your open question is answered: basic/ holds index.ts, README.md, package.json, tsconfig.json and eslint.config.js. index.ts is the whole server and is transcribed below. It builds an `x402Facilitator`, calls `facilitator.register(network, scheme)` once per network, and wraps `facilitator.verify`, `facilitator.settle` and `facilitator.getSupported` in three Express routes. It pins express ^4.22.3; we use Express 5, so check the routes still behave.
+  - The two docs pages import HTTPFacilitatorClient from different paths: "@x402/core/http" (facilitator page) and "@x402/core/server" (networks page). Checked in the installed @x402/core 2.32.0: both paths export it, so either works.
+  - Facilitator page, "Duplicate Settlement (Solana)": a buyer could reuse one payment for several requests, and "If you are a merchant settling payments directly (without a facilitator), you must implement equivalent duplicate detection yourself." That backs our "each payment used once" rule.
+- Code pattern from source: (transcribed 2026-11-26, same sources and checks as Topic 10)
+
+  examples/typescript/facilitator/basic/index.ts (whole file):
+
+```typescript
+import { base58 } from "@scure/base";
+import { createKeyPairSignerFromBytes } from "@solana/kit";
+import { x402Facilitator } from "@x402/core/facilitator";
+import {
+  PaymentPayload,
+  PaymentRequirements,
+  SettleResponse,
+  VerifyResponse,
+} from "@x402/core/types";
+import { toFacilitatorEvmSigner } from "@x402/evm";
+import { ExactEvmScheme } from "@x402/evm/exact/facilitator";
+import { UptoEvmScheme } from "@x402/evm/upto/facilitator";
+import { toFacilitatorSvmSigner } from "@x402/svm";
+import { ExactSvmScheme } from "@x402/svm/exact/facilitator";
+import dotenv from "dotenv";
+import express from "express";
+import { createWalletClient, http, publicActions } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { baseSepolia } from "viem/chains";
+
+dotenv.config();
+
+// Configuration
+const PORT = process.env.PORT || "4022";
+
+// Validate required environment variables
+if (!process.env.EVM_PRIVATE_KEY) {
+  console.error("❌ EVM_PRIVATE_KEY environment variable is required");
+  process.exit(1);
+}
+
+if (!process.env.SVM_PRIVATE_KEY) {
+  console.error("❌ SVM_PRIVATE_KEY environment variable is required");
+  process.exit(1);
+}
+
+// Initialize the EVM account from private key
+const evmAccount = privateKeyToAccount(
+  process.env.EVM_PRIVATE_KEY as `0x${string}`,
+);
+console.info(`EVM Facilitator account: ${evmAccount.address}`);
+
+// Initialize the SVM account from private key
+const svmAccount = await createKeyPairSignerFromBytes(
+  base58.decode(process.env.SVM_PRIVATE_KEY as string),
+);
+console.info(`SVM Facilitator account: ${svmAccount.address}`);
+
+// Create a Viem client with both wallet and public capabilities
+const viemClient = createWalletClient({
+  account: evmAccount,
+  chain: baseSepolia,
+  transport: http(),
+}).extend(publicActions);
+
+// Initialize the x402 Facilitator with EVM and SVM support
+
+const evmSigner = toFacilitatorEvmSigner({
+  getCode: (args: { address: `0x${string}` }) => viemClient.getCode(args),
+  address: evmAccount.address,
+  readContract: (args: {
+    address: `0x${string}`;
+    abi: readonly unknown[];
+    functionName: string;
+    args?: readonly unknown[];
+  }) =>
+    viemClient.readContract({
+      ...args,
+      args: args.args || [],
+    }),
+  verifyTypedData: (args: {
+    address: `0x${string}`;
+    domain: Record<string, unknown>;
+    types: Record<string, unknown>;
+    primaryType: string;
+    message: Record<string, unknown>;
+    signature: `0x${string}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) => viemClient.verifyTypedData(args as any),
+  writeContract: (args: {
+    address: `0x${string}`;
+    abi: readonly unknown[];
+    functionName: string;
+    args: readonly unknown[];
+  }) =>
+    viemClient.writeContract({
+      ...args,
+      args: args.args || [],
+    }),
+  sendTransaction: (args: { to: `0x${string}`; data: `0x${string}` }) =>
+    viemClient.sendTransaction(args),
+  waitForTransactionReceipt: (args: { hash: `0x${string}` }) =>
+    viemClient.waitForTransactionReceipt(args),
+});
+
+// Facilitator can now handle all Solana networks with automatic RPC creation
+const svmRpcUrl = process.env.SVM_RPC_URL;
+const svmSigner = toFacilitatorSvmSigner(
+  svmAccount,
+  svmRpcUrl ? { defaultRpcUrl: svmRpcUrl } : undefined,
+);
+
+const facilitator = new x402Facilitator()
+  .onBeforeVerify(async (context) => {
+    console.log("Before verify", context);
+  })
+  .onAfterVerify(async (context) => {
+    console.log("After verify", context);
+  })
+  .onVerifyFailure(async (context) => {
+    console.log("Verify failure", context);
+  })
+  .onBeforeSettle(async (context) => {
+    console.log("Before settle", context);
+  })
+  .onAfterSettle(async (context) => {
+    console.log("After settle", context);
+  })
+  .onSettleFailure(async (context) => {
+    console.log("Settle failure", context);
+  });
+
+// Register EVM and SVM schemes
+facilitator.register(
+  "eip155:84532",
+  new ExactEvmScheme(evmSigner, {
+    // Add trusted ERC-6492 factory addresses here (e.g. your chosen ERC-4337 smart wallet factory).
+    // A non-empty array enables smart wallet deployment; an empty array denies all factory calls.
+    eip6492AllowedFactories: [],
+  }),
+); // Base Sepolia
+facilitator.register("eip155:84532", new UptoEvmScheme(evmSigner));
+facilitator.register(
+  "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+  new ExactSvmScheme(svmSigner),
+); // Devnet
+
+// Initialize Express app
+const app = express();
+app.use(express.json());
+
+/**
+ * POST /verify
+ * Verify a payment against requirements
+ *
+ * Note: Payment tracking and bazaar discovery are handled by lifecycle hooks
+ */
+app.post("/verify", async (req, res) => {
+  const endpointT0 = performance.now();
+  try {
+    const { paymentPayload, paymentRequirements } = req.body as {
+      paymentPayload: PaymentPayload;
+      paymentRequirements: PaymentRequirements;
+    };
+
+    if (!paymentPayload || !paymentRequirements) {
+      return res.status(400).json({
+        error: "Missing paymentPayload or paymentRequirements",
+      });
+    }
+
+    const payloadField: unknown = paymentPayload.payload;
+    if (
+      typeof payloadField !== "object" ||
+      payloadField === null ||
+      Array.isArray(payloadField)
+    ) {
+      return res.status(400).json({
+        error: "paymentPayload.payload must be an object",
+      });
+    }
+
+    const supportedKind = facilitator
+      .getSupported()
+      .kinds.some(
+        (kind) =>
+          kind.x402Version === paymentPayload.x402Version &&
+          kind.scheme === paymentRequirements.scheme &&
+          kind.network === paymentRequirements.network,
+      );
+    if (!supportedKind) {
+      return res.json({
+        isValid: false,
+        invalidReason: "unsupported_scheme",
+      });
+    }
+
+    if (
+      paymentRequirements.scheme === "exact" &&
+      paymentRequirements.network.startsWith("eip155:") &&
+      !("authorization" in payloadField) &&
+      !("permit2Authorization" in payloadField)
+    ) {
+      return res.status(400).json({
+        error:
+          "paymentPayload.payload must include authorization or permit2Authorization",
+      });
+    }
+
+    // Hooks will automatically:
+    // - Track verified payment (onAfterVerify)
+    // - Extract and catalog discovery info (onAfterVerify)
+    const response: VerifyResponse = await facilitator.verify(
+      paymentPayload,
+      paymentRequirements,
+    );
+
+    res.json(response);
+  } catch (error) {
+    console.error("Verify error:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  } finally {
+    console.log(
+      `/verify completed in ${((performance.now() - endpointT0) / 1000).toFixed(3)}s`,
+    );
+  }
+});
+
+/**
+ * POST /settle
+ * Settle a payment on-chain
+ *
+ * Note: Verification validation and cleanup are handled by lifecycle hooks
+ */
+app.post("/settle", async (req, res) => {
+  const endpointT0 = performance.now();
+  try {
+    const { paymentPayload, paymentRequirements } = req.body as {
+      paymentPayload: PaymentPayload;
+      paymentRequirements: PaymentRequirements;
+    };
+
+    if (!paymentPayload || !paymentRequirements) {
+      return res.status(400).json({
+        error: "Missing paymentPayload or paymentRequirements",
+      });
+    }
+
+    const payloadField: unknown = paymentPayload.payload;
+    if (
+      typeof payloadField !== "object" ||
+      payloadField === null ||
+      Array.isArray(payloadField)
+    ) {
+      return res.status(400).json({
+        error: "paymentPayload.payload must be an object",
+      });
+    }
+
+    const supportedKind = facilitator
+      .getSupported()
+      .kinds.some(
+        (kind) =>
+          kind.x402Version === paymentPayload.x402Version &&
+          kind.scheme === paymentRequirements.scheme &&
+          kind.network === paymentRequirements.network,
+      );
+    if (!supportedKind) {
+      return res.json({
+        success: false,
+        errorReason: "unsupported_scheme",
+        transaction: "",
+        network: paymentRequirements.network || "unknown",
+      });
+    }
+
+    if (
+      paymentRequirements.scheme === "exact" &&
+      paymentRequirements.network.startsWith("eip155:") &&
+      !("authorization" in payloadField) &&
+      !("permit2Authorization" in payloadField)
+    ) {
+      return res.status(400).json({
+        error:
+          "paymentPayload.payload must include authorization or permit2Authorization",
+      });
+    }
+
+    // Hooks will automatically:
+    // - Validate payment was verified (onBeforeSettle - will abort if not)
+    // - Check verification timeout (onBeforeSettle)
+    // - Clean up tracking (onAfterSettle / onSettleFailure)
+    const response: SettleResponse = await facilitator.settle(
+      paymentPayload,
+      paymentRequirements,
+    );
+
+    res.json(response);
+  } catch (error) {
+    console.error("Settle error:", error);
+
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  } finally {
+    console.log(
+      `/settle completed in ${((performance.now() - endpointT0) / 1000).toFixed(3)}s`,
+    );
+  }
+});
+
+/**
+ * GET /supported
+ * Get supported payment kinds and extensions
+ */
+app.get("/supported", async (req, res) => {
+  try {
+    const response = facilitator.getSupported();
+    res.json(response);
+  } catch (error) {
+    console.error("Supported error:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// Start the server
+app.listen(parseInt(PORT), () => {
+  console.log(`🚀 Facilitator listening on http://localhost:${PORT}`);
+  console.log();
+});
+```
+
+  Facilitator page, "Facilitator HTTP request timeout (resource server side)":
+
+```typescript
+import { HTTPFacilitatorClient } from "@x402/core/http";
+
+const facilitatorClient = new HTTPFacilitatorClient({
+  url: "https://your-facilitator.com",
+  timeoutMs: 30_000, // 30 seconds
+});
+```
+
+  Spec v2, "7.1 POST /verify", request (Exact Scheme):
+
+```json
+{
+  "x402Version": 2,
+  "paymentPayload": {
+    /* PaymentPayload schema */
+  },
+  "paymentRequirements": {
+    /* PaymentRequirements schema */
+  }
+}
+```
+
+  Spec v2, "7.1 POST /verify", Successful Response:
+
+```json
+{
+  "isValid": true,
+  "payer": "0x857b06519E91e3A54538791bDbb0E22373e36b66"
+}
+```
+
+  Spec v2, "7.1 POST /verify", Error Response:
+
+```json
+{
+  "isValid": false,
+  "invalidReason": "insufficient_funds",
+  "payer": "0x857b06519E91e3A54538791bDbb0E22373e36b66"
+}
+```
+
+  Spec v2, "7.2 POST /settle", Successful Response:
+
+```json
+{
+  "success": true,
+  "payer": "0x857b06519E91e3A54538791bDbb0E22373e36b66",
+  "transaction": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "network": "eip155:84532"
+}
+```
+
+  Spec v2, "7.2 POST /settle", Error Response:
+
+```json
+{
+  "success": false,
+  "errorReason": "insufficient_funds",
+  "payer": "0x857b06519E91e3A54538791bDbb0E22373e36b66",
+  "transaction": "",
+  "network": "eip155:84532"
+}
+```
+
+  Spec v2, "7.3 GET /supported", Response:
+
+```json
+{
+  "kinds": [
+    {
+      "x402Version": 2,
+      "scheme": "exact",
+      "network": "eip155:84532"
+    },
+    {
+      "x402Version": 2,
+      "scheme": "exact",
+      "network": "eip155:8453"
+    },
+    {
+      "x402Version": 2,
+      "scheme": "exact",
+      "network": "eip155:43113"
+    },
+    {
+      "x402Version": 2,
+      "scheme": "exact",
+      "network": "eip155:43114"
+    }
+  ],
+  "extensions": [],
+  "signers": {
+    "eip155:*": ["0x1234567890abcdef1234567890abcdef12345678"],
+    "solana:*": ["CKPKJWNdJEqa81x7CkZ14BVPiY6y16Sxs7owznqtWYp5"]
+  }
+}
+```
+
+## Topic 12: Midnight, sending tNIGHT from code (ledger 9)
+What to find: a public tNIGHT transfer for ledger 9 and wallet SDK 2.x, and how to get the transaction ID back.
+- URL: https://docs.midnight.network/guides/manage-dust (ledger 9, Wallet SDK 2.0.0; the page says submitTransaction returns an identifier)
+  Also: https://github.com/midnightntwrk/midnight-examples/blob/main/examples/private-party/src/wallet.ts (official example source, ledger 9)
+  Also: https://github.com/midnightntwrk/midnight-examples/blob/main/README.md (its pinned versions)
+  Fallback (ledger 8, Wallet SDK 1.2.0): https://docs.midnight.network/guides/node-server-wallet
+  Also: https://docs.midnight.network/relnotes/wallet/wallet-2-0-0 (what changed in Wallet SDK 2)
+- Where on the page:
+  - manage-dust: headings "How a transaction pays its fee", "Estimating a fee before submitting" > Procedure, "Sending several transactions from one wallet" > Procedure. A search excerpt shows a NIGHT transfer built without its fee in this guide; I did not confirm which heading holds it, so check those three procedures. Function names on the page: submitTransaction, resultOf, waitUntilSettled, indexedTransaction.
+  - private-party wallet.ts: the method `transferNight` on the MidnightWalletProvider class (docblock "Sends unshielded NIGHT to another wallet, paying this wallet's own fees.").
+  - midnight-examples README: heading "Pinned toolchain".
+  - node-server-wallet (fallback): heading "Funding the wallet on the local network" > Procedure (transferTransaction, signRecipe, finalizeRecipe, submitWithRetry) and > Verification (shows the transaction ID).
+  - Wallet 2.0.0 release notes: heading "Breaking changes" > "Facade" (TokenTransfer now needs typed ShieldedAddress or UnshieldedAddress values).
+- What it taught:
+  - Ledger 9 and Wallet SDK 2: the examples README says all its examples target ledger 9 and pins Wallet SDK 2.0.1 and Midnight.js 5.0.1. The private-party wallet.ts imports the v9 protocol package and the wallet SDK. Its `transferNight` method builds an unshielded NIGHT transfer to an address and amount, signs the recipe with the wallet's unshielded keystore, finalizes it, submits it, and returns the string from submitTransaction. The sender pays its own fees. The default TTL is one hour.
+  - Transaction ID: the manage-dust page says "To read the result of one transaction, look it up in the indexer by the identifier that `submitTransaction` returns." So the returned string is the identifier to keep. The page also says a resolved submitTransaction does not mean the wallet has applied the result, and points to waitUntilSettled and resultOf for that.
+  - Fee warning: ledger 9 changes fees (a min_block_price floor), so do not copy fee numbers from older examples. The sender needs DUST. The Wallet SDK 2 release notes say wallets now take typed address objects instead of strings, and the ledger 9 page says methods no longer take a secretKeys argument.
+  - Ledger 8 pages still on the docs site: node-server-wallet (SDK 1.2.0), wallet-developer-guide "Make transfers" > "Unshielded transfers", api-reference/wallet-sdk "Transfers", build-a-wallet and tokens/unshielded-token all carry a ledger 8 warning. The wallet-sdk API reference does not state what submitTransaction returns. Use them for the call sequence only: transferTransaction, signRecipe, finalizeRecipe, submitTransaction.
+  - The node-server-wallet example is local-network only and sends NIGHT from the genesis wallet. For Preview or Preprod it says to use the faucet instead.
+- Checked (2026-11-26):
+  - Your open question is answered: the NIGHT transfer is under "Estimating a fee before submitting" > Procedure, step 1 (built with `payFees: false`). The same procedure's step 5 shows `const identifier = await wallet.submitTransaction(finalized);`. Both blocks transcribed below.
+  - `transferNight` confirmed verbatim, midnight-examples main at c37451a. Our registry/src/wallet.ts is the same MidnightWalletProvider class from the same repo but without this method, so adding it is a copy, not new code.
+  - The two ledger 9 sources use slightly different names: private-party uses `nativeToken().raw` and `signDataAsync`; manage-dust uses `unshieldedToken().raw` and `signData`. Both are ledger 9.
+- Code pattern from source: (transcribed 2026-11-26. wallet.ts copied byte for byte from midnightntwrk/midnight-examples main at c37451a. manage-dust blocks copied from the page's source file in midnightntwrk/midnight-docs main at 549bd62, then checked by SHA-256 against the live page in Chrome: both match.)
+
+  private-party src/wallet.ts, method `transferNight` (lines 188 to 216):
+
+```typescript
+  /**
+   * Sends unshielded NIGHT to another wallet, paying this wallet's own fees.
+   *
+   * Whether the NIGHT sent here goes on to generate DUST depends entirely on the
+   * RECIPIENT's key: the ledger creates a DUST UTXO only when a NIGHT UTXO is
+   * created under a key that already has an entry in its Registration Table. So an
+   * unregistered recipient ends up holding NIGHT while still having zero DUST —
+   * which is exactly the precondition the sponsorship demo needs.
+   */
+  async transferNight(
+    to: UnshieldedAddress,
+    amount: bigint,
+    ttl: Date = ttlOneHour(),
+  ): Promise<string> {
+    const recipe = await this.wallet.transferTransaction(
+      [
+        {
+          type: 'unshielded',
+          outputs: [{ type: nativeToken().raw, receiverAddress: to, amount }],
+        },
+      ],
+      { ttl },
+    );
+    const signed = await this.wallet.signRecipe(recipe, (payload) =>
+      this.unshieldedKeystore.signDataAsync(payload),
+    );
+    const finalized = await this.wallet.finalizeRecipe(signed);
+    return await this.wallet.submitTransaction(finalized);
+  }
+```
+
+  manage-dust, "Estimating a fee before submitting" > Procedure, step 1:
+
+```typescript
+const ttl = new Date(Date.now() + 30 * 60 * 1000);
+const recipient = String(unshieldedKeystore.getBech32Address());
+const receiverAddress = MidnightBech32m.parse(recipient).decode(UnshieldedAddress, networkId);
+
+const recipe = await wallet.transferTransaction(
+  [{ type: 'unshielded', outputs: [{ type: unshieldedToken().raw, receiverAddress, amount: 1_000_000n }] }],
+  { ttl, payFees: false },
+);
+```
+
+  manage-dust, "Estimating a fee before submitting" > Procedure, step 5:
+
+```typescript
+// The fee a transaction declares: the sum of `vFee` over every DUST spend in every intent.
+const sumDeclaredFees = (handle: WalletTransaction) => {
+  // The wallet returns transactions as handles. Read the ledger transaction that the handle carries.
+  const tx =
+    handle.stage === 'Finalized'
+      ? ledger.Transaction.deserialize('signature', 'proof', 'binding', handle.serialize())
+      : ledger.Transaction.deserialize('signature', 'pre-proof', 'pre-binding', handle.serialize());
+  let total = 0n;
+  for (const [, intent] of tx.intents ?? []) {
+    for (const spend of intent.dustActions?.spends ?? []) total += spend.vFee;
+  }
+  return total;
+};
+
+const declared = sumDeclaredFees(finalized);
+const identifier = await wallet.submitTransaction(finalized);
+```
+
+## Topic 13: Midnight, confirming a payment arrived
+What to find: how code checks that a given transaction paid a given amount to a given address.
+- URL: https://docs.midnight.network/api-reference/midnight-indexer (Midnight Indexer API v4, GraphQL)
+  Also: https://docs.midnight.network/api-reference/midnight-indexer/types/objects/unshielded-utxo
+  Also: https://docs.midnight.network/api-reference/midnight-indexer/operations/subscriptions/unshielded-transactions
+  Also: https://docs.midnight.network/relnotes/wallet/wallet-2-0-0 (wallet transaction history)
+  Also: https://docs.midnight.network/guides/manage-dust (looking up one transaction's result)
+- Where on the page:
+  - Indexer page: "Example queries and mutations" > "transactions(offset: TransactionOffset!): [Transaction!]!" > "Example: Query transactions by hash" and "Example: Query transactions by identifier"; "Input types" > "TransactionOffset (oneOf)"; "Transaction type" (fields) > "TransactionResult type"; "Unshielded token types" > "UnshieldedUtxo"; "Subscriptions: Real-time updates" > "Unshielded transactions subscription" > "Parameters" and "Event types".
+  - Wallet 2.0.0 release notes: heading "New features" > "Unshielded transaction history with UTXOs", and "Known issues".
+  - Build a wallet page: section on history (mentions the facade's getAllFromTxHistory()).
+  - manage-dust: the sentence beginning "To read the result of one transaction" and the indexedTransaction helper.
+- What it taught:
+  - Look up a transaction: the indexer's transactions query takes a TransactionOffset with two options, hash or identifier. The identifier is what submitTransaction returns (see Topic 12). The transaction has fields including id, hash, block, unshieldedCreatedOutputs, unshieldedSpentOutputs, and for regular transactions transactionResult, fee and identifiers.
+  - Check the payment: each unshielded output (UnshieldedUtxo) has owner (Bech32m address), value (a string, to hold u128), tokenType, intentHash, outputIndex, createdAtTransaction and spentAtTransaction (null if unspent). So a check would read the transaction's created outputs and compare owner, value and token type. The indexer pages describe these fields but do not show a worked "verify a payment" example, so the comparison logic is yours to write.
+  - Check it succeeded: read transactionResult as well. The manage-dust page says indexedTransaction polls the indexer's transactions query for the fee and transactionResult of a submitted transaction.
+  - Live alternative: the unshieldedTransactions subscription takes an address (and an optional transactionId) and sends UnshieldedTransaction events (transaction, createdUtxos, spentUtxos) and UnshieldedTransactionsProgress events (highestTransactionId).
+  - Wallet alternative: Wallet SDK 2.0.0 gives each unshielded history entry createdUtxos and spentUtxos with value, owner, tokenType, intentHash and outputIndex. Its known issues say only the unshielded wallet keeps history. The wallet SDK pages I read show history storage being configured but no query example; the build-a-wallet page names getAllFromTxHistory().
+  - Caveats: the Preprod indexer address on the networks page is a Blockfrost URL under /api/v0, while the indexer page is the v4 API (/api/v4 locally). I did not verify that the same queries work on the Blockfrost endpoint, so test that. The indexer page also marks parts of the API as beta.
+  - Not found: a guide that ties a payment check to a specific address, amount and transaction in one place.
+- Checked (2026-11-26):
+  - Both example queries confirmed. The "by identifier" example selects only id, hash and the unshielded outputs. `transactionResult` appears only in the "by hash" example, inside `... on RegularTransaction { ... }`. Asking for both in one query is ours to combine.
+  - Gap confirmed: manage-dust names `indexedTransaction` and `resultOf` and describes them, but does not show their code. The query itself therefore comes from the indexer page, not from manage-dust.
+  - Your Blockfrost caveat applies to Preprod only. We use Preview, whose indexer is already the v4 endpoint in our config (indexer.preview.midnight.network/api/v4/graphql) and has answered every query so far.
+  - Not transcribed: the subscription and wallet-history routes. The one-off query by identifier covers what the facilitator needs.
+- Code pattern from source: (transcribed 2026-11-26 from the page's source file in midnightntwrk/midnight-docs main at 549bd62, then checked by SHA-256 against the live page in Chrome: all three match.)
+
+  Indexer page, "API endpoints" > "HTTP endpoint (queries and mutations)":
+
+```shell
+POST https://<host>:<port>/api/v4/graphql
+Content-Type: application/json
+```
+
+  Indexer page, "transactions(offset: TransactionOffset!)" > "Example: Query transactions by identifier":
+
+```graphql
+query {
+  transactions(offset: { identifier: "abc123..." }) {
+    id
+    hash
+    unshieldedCreatedOutputs {
+      owner
+      value
+      tokenType
+    }
+    unshieldedSpentOutputs {
+      owner
+      value
+      tokenType
+    }
+  }
+}
+```
+
+  Indexer page, "transactions(offset: TransactionOffset!)" > "Example: Query transactions by hash":
+
+```graphql
+query {
+  transactions(offset: { hash: "3031323..." }) {
+    id
+    hash
+    protocolVersion
+    block {
+      height
+      hash
+    }
+    raw
+    contractActions {
+      __typename
+      ... on ContractDeploy {
+        address
+        state
+        zswapState
+        unshieldedBalances {
+          tokenType
+          amount
+        }
+      }
+      ... on ContractCall {
+        address
+        state
+        entryPoint
+        zswapState
+        unshieldedBalances {
+          tokenType
+          amount
+        }
+      }
+      ... on ContractUpdate {
+        address
+        state
+        zswapState
+        unshieldedBalances {
+          tokenType
+          amount
+        }
+      }
+    }
+    ... on RegularTransaction {
+      zswapMerkleTreeRoot
+      identifiers
+      fee
+      transactionResult {
+        status
+        segments {
+          id
+          success
+        }
+      }
+    }
+    unshieldedCreatedOutputs {
+      owner
+      value
+      tokenType
+      intentHash
+      outputIndex
+    }
+    unshieldedSpentOutputs {
+      owner
+      value
+      tokenType
+      intentHash
+      outputIndex
+    }
+  }
+}
+```

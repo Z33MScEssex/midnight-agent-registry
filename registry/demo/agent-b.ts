@@ -12,6 +12,12 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { ClientFactory, ClientFactoryOptions, JsonRpcTransportFactory } from '@a2a-js/sdk/client'; // A2A client
 import { Role, taskStateToJSON, type SendMessageRequest } from '@a2a-js/sdk'; // message types
 import { getConfig } from '../src/config.js'; // network endpoints
+import pino from 'pino'; // logging for the wallet (template)
+import { type EnvironmentConfiguration } from '@midnight-ntwrk/testkit-js'; // wallet config shape
+import { startWallet, type MidnightWalletProvider } from '../src/wallet.js'; // template wallet, with transferNight
+import { x402Client } from '@x402/core/client'; // x402 buyer client (Topic 6)
+import { wrapFetchWithPayment } from '@x402/fetch'; // pays a 402 and retries (Topic 6)
+import { MIDNIGHT_PREVIEW, NIGHT_ASSET, MidnightExactClient } from './midnight-x402.js'; // our Midnight scheme
 import { decodeLedger, deriveState } from '../api/index.js'; // Topic 8 decoders
 
 // @ts-expect-error WebSocket global assignment for apollo (template)
@@ -36,10 +42,30 @@ if (matches.length === 0) throw new Error(`No agent named "${wanted}" in the reg
 const agent = matches[matches.length - 1]; // newest record with that name
 console.log(`[AgentB] Chose #${agent.id} ${agent.name}, Agent Card at ${agent.endpoint}`);
 
-// 2. Download its Agent Card from the endpoint the registry gave (client.ts: createFromUrl).
+// 2a. x402 payments. The cap is the price in Agent A's on-chain record, so Agent A cannot charge more (OURS).
+let wallet: MidnightWalletProvider | undefined; // opened only if a payment is needed
+const getWallet = async () => {
+  if (!wallet) {
+    console.log('[AgentB] Payment needed: starting wallet (first sync takes a few minutes)...');
+    const logger = pino({ level: process.env['LOG_LEVEL'] ?? 'warn', transport: { target: 'pino-pretty' } });
+    const env: EnvironmentConfiguration = { walletNetworkId: config.networkId, ...config };
+    wallet = await startWallet(logger, env, { network: 'preview', role: 'ALICE', faucet: config.faucet, syncTimeoutMs: 60 * 60_000 });
+  }
+  return wallet;
+};
+const payer = x402Client.fromConfig({ // Topic 6 "Spend Controls" pattern
+  schemes: [{ network: MIDNIGHT_PREVIEW, client: new MidnightExactClient(getWallet, config.networkId) }],
+  spendControls: {
+    allowedAssets: [{ network: MIDNIGHT_PREVIEW, asset: NIGHT_ASSET, maxAmountPerPayment: agent.price.toString() }], // opt in to tNIGHT, capped
+  },
+});
+const fetchWithPayment = wrapFetchWithPayment(fetch, payer); // Topic 6: handles 402 automatically
+console.log(`[AgentB] Will pay at most ${agent.price} STAR per call (the on-chain price)`);
+
+// 2b. Download its Agent Card from the endpoint the registry gave (client.ts: createFromUrl).
 const factory = new ClientFactory(
   ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
-    transports: [new JsonRpcTransportFactory()],
+    transports: [new JsonRpcTransportFactory({ fetchImpl: fetchWithPayment })], // A2A calls go through the payer (OURS)
   })
 );
 const client = await factory.createFromUrl(agent.endpoint, ''); // '' = the endpoint already is the card URL
@@ -94,4 +120,6 @@ for await (const event of client.sendMessageStream(params)) {
   }
 }
 console.log('[AgentB] Done.');
+// Close the wallet if it was opened. Bounded: wallet.stop() hung after register-agent-a on 2026-11-26 (OURS).
+if (wallet) await Promise.race([wallet.stop(), new Promise((r) => setTimeout(r, 10_000))]);
 process.exit(0); // the indexer client keeps a socket open

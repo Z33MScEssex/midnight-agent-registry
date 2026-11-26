@@ -22,3 +22,5 @@ docs/build_log.md
 
 # Third-party clone used for step 2 of the build log (clone it yourself)
 example-hello-world/
+*.seed
+.x402-claims.json

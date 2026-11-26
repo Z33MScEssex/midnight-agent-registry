@@ -22,10 +22,10 @@ It joins the two. The chain says **who** an agent is and **where** its card live
 1. Agent A runs an A2A server and registers on Midnight. Its record carries MIP-0029's fields plus
    two extensions: the URL of its Agent Card and its price per request.
 2. Agent B reads the registry, picks an agent, downloads the card from the URL on chain, checks
-   the card matches the record, and calls the agent over A2A.
+   the card matches the record, pays the price over x402, and calls the agent over A2A.
 
 Reading the registry is a query to Midnight's indexer. It needs no wallet and costs nothing.
-Only registering and updating are transactions, paid in DUST.
+Registering, updating and paying Agent A are transactions. Fees are paid in DUST; the payment itself is tNIGHT.
 
 ## The record
 
@@ -81,6 +81,35 @@ from the record's. This catches a stale or wrong URL. It does not stop a malicio
 because whoever runs the URL writes the card. A stronger check would store a hash of the card on
 chain and compare it. That is listed under next steps.
 
+## Payments (x402)
+
+Agent A charges per call, and Agent B pays in tNIGHT on Midnight, using the x402 protocol's real
+messages and SDK.
+
+1. Agent B calls Agent A's A2A endpoint. Agent A answers **HTTP 402** with a `PAYMENT-REQUIRED`
+   header: scheme `exact`, network `midnight:preview`, an amount in STAR (the smallest unit of NIGHT),
+   Agent A's address, and the `upfront` payment flow.
+2. Agent B checks the amount against the `price` in Agent A's **on-chain record**, and refuses anything
+   higher. This uses the x402 SDK's own spend control, set from the registry.
+3. Agent B sends the tNIGHT on Midnight, then repeats the call with the transaction identifier in a
+   `PAYMENT-SIGNATURE` header.
+4. Agent A's facilitator looks the transaction up on Midnight's indexer. It checks that the payment
+   succeeded, went to Agent A's address, was NIGHT, was at least the price, and is recent. Then it
+   **claims it once**. Only after that does Agent A answer.
+
+**Why this shape.** x402's generic `exact` spec defines a "client-submitted (payment proof)" family for
+networks where the payer submits the payment itself, and says it must use the `upfront` flow (settle,
+then serve). Spec section 7.2 allows settle to be "marking a transaction as used" after reading the
+ledger. So nothing here is a custom protocol: it is a new network plugged into x402's documented
+extension points.
+
+**Claims.** The single-use key is the network joined to the transaction identifier, as the spec asks.
+It is taken before the facilitator waits on anything, so two copies of one proof cannot both pass.
+Claims are written to disk, so a restart does not reopen old payments. Proofs older than the 402's
+time window are refused.
+
+**Amounts.** Less than the price is refused and not returned. More than the price is accepted and kept.
+
 ## Where this differs from MIP-0029
 
 - **Capabilities are text**, not an enum list. It's simpler to store, and the demo needs none of
@@ -98,7 +127,11 @@ chain and compare it. That is listed under next steps.
   trusted `ownerHash`, avoids this. It is the first thing to fix.
 - **Agent A's endpoint is `localhost`.** Only the same machine can reach it. A public demo needs
   hosting or a tunnel.
-- **The price is stored, not charged.** Charging it per request is the x402 stretch goal.
+- **Payments are not bound to one request.** The x402 spec asks each payment proof to be tied to the
+  request it pays for. A Midnight public transfer has no memo field to carry a request id, so this
+  version uses the spec's fallback: one facilitator per receiving address, whose single-use store sees
+  every claim. Binding with a payer signature over the payment request is the next step.
+- **Agent B's first payment waits for its wallet to sync,** a few minutes on a fresh start.
 - **No size limit on text fields.** The writer pays for what they store, but a reader should not
   trust field lengths.
 - **Unreachable endpoints** end Agent B with `fetch failed`. The result is right, but the message
@@ -108,6 +141,6 @@ chain and compare it. That is listed under next steps.
 
 1. Look up by ID or owner, not only by name.
 2. Store a hash of the Agent Card on chain and check it.
-3. x402: Agent A answers `402 Payment Required` with the on-chain price, and Agent B pays and retries.
+3. Bind each payment to its request with a payer signature over the payment request.
 4. A public endpoint for Agent A.
 5. `deactivate`, to match MIP-0029.

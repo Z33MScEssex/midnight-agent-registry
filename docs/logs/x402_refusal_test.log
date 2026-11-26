@@ -1,0 +1,22 @@
+
+
+[AgentB] Registry 05cb427a... lists 2 agent(s):
+  #1 Weather agent | DATA | price 2500 | https://weather.example/agent-card.json
+  #2 Echo agent | DATA | price 0 | http://localhost:41241/.well-known/agent-card.json
+[AgentB] Chose #2 Echo agent, Agent Card at http://localhost:41241/.well-known/agent-card.json
+[AgentB] Will pay at most 0 STAR per call (the on-chain price)
+[AgentB] Card checked: "Echo agent" v1.0.0 matches the on-chain record
+[AgentB] Sending "hello"
+~/project/agent_registry/registry/node_modules/@x402/fetch/src/index.ts:123
+      throw new Error(
+            ^
+
+Error: Failed to create payment payload: All payment requirements were rejected by spendControls.allowedAssets maxAmountPerPayment. Raise the per-asset cap, or omit maxAmountPerPayment to allow uncapped (default assets then fall back to the top-level USD cap).
+    at JsonRpcTransport.customFetchImpl (~/project/agent_registry/registry/node_modules/@x402/fetch/src/index.ts:123:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async JsonRpcTransport._sendStreamingRequest (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@a2a-js/sdk/dist/client/index.js:6033:22)
+    at async JsonRpcTransport.sendMessageStream (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@a2a-js/sdk/dist/client/index.js:5889:5)
+    at async Client.sendMessageStream (file://~/MSc-AI/Project%20work/agent_registry/registry/node_modules/@a2a-js/sdk/dist/client/index.js:5497:22)
+    at async <anonymous> (~/project/agent_registry/registry/demo/agent-b.ts:101:18)
+
+Node.js v22.23.5

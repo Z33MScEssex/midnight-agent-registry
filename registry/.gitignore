@@ -3,3 +3,5 @@ node_modules/
 .wallet-state/
 contract/managed/
 .agent-a-owner.key
+.agent-a-wallet.seed
+.x402-claims.json

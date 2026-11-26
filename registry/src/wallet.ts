@@ -27,6 +27,7 @@ import {
   Transaction,
   LedgerParameters,
   unshieldedToken,
+  nativeToken, // LOCAL CHANGE (2026-11-26): used by transferNight, copied from the private-party example
   ZswapSecretKeys,
 } from '@midnight-ntwrk/midnight-js-protocol/v9';
 import {
@@ -52,6 +53,7 @@ import {
   ShieldedAddress,
   ShieldedCoinPublicKey,
   ShieldedEncryptionPublicKey,
+  type UnshieldedAddress, // LOCAL CHANGE (2026-11-26): transferNight's recipient type
 } from '@midnightntwrk/wallet-sdk';
 import {
   type DustWalletOptions,
@@ -213,6 +215,38 @@ export class MidnightWalletProvider implements Ledger9WalletProvider {
       }
       await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
+  }
+
+  // LOCAL CHANGE (2026-11-26): copied verbatim from midnight-examples private-party src/wallet.ts
+  // (research plan Topic 12). Agent B pays Agent A with it.
+  /**
+   * Sends unshielded NIGHT to another wallet, paying this wallet's own fees.
+   *
+   * Whether the NIGHT sent here goes on to generate DUST depends entirely on the
+   * RECIPIENT's key: the ledger creates a DUST UTXO only when a NIGHT UTXO is
+   * created under a key that already has an entry in its Registration Table. So an
+   * unregistered recipient ends up holding NIGHT while still having zero DUST —
+   * which is exactly the precondition the sponsorship demo needs.
+   */
+  async transferNight(
+    to: UnshieldedAddress,
+    amount: bigint,
+    ttl: Date = ttlOneHour(),
+  ): Promise<string> {
+    const recipe = await this.wallet.transferTransaction(
+      [
+        {
+          type: 'unshielded',
+          outputs: [{ type: nativeToken().raw, receiverAddress: to, amount }],
+        },
+      ],
+      { ttl },
+    );
+    const signed = await this.wallet.signRecipe(recipe, (payload) =>
+      this.unshieldedKeystore.signDataAsync(payload),
+    );
+    const finalized = await this.wallet.finalizeRecipe(signed);
+    return await this.wallet.submitTransaction(finalized);
   }
 
   async start(): Promise<void> {

@@ -1,0 +1,20 @@
+[Facilitator] Listening on http://localhost:4022 (network midnight:preview)
+[Facilitator] Before verify
+[Facilitator] After verify { isValid: false, invalidReason: 'transaction_not_found' }
+[Facilitator] Before verify
+[Facilitator] After verify { isValid: false, invalidReason: 'invalid_payload' }
+[Facilitator] Before settle
+[Facilitator] After settle {
+  success: true,
+  payer: 'mn_addr_preview10gdq6hp90n6uvya0jhj7ex3tukftshve3rt5ae3mdfdxr4rpkgesuyjp3k',
+  transaction: '0021c641126186897eb11d3937fc22e4235f96995a42a17eb0f8ea9f9dd164e7b4',
+  network: 'midnight:preview',
+  amount: '100000'
+}
+[Facilitator] Before settle
+[Facilitator] After settle {
+  success: false,
+  errorReason: 'payment_already_used',
+  transaction: '0021c641126186897eb11d3937fc22e4235f96995a42a17eb0f8ea9f9dd164e7b4',
+  network: 'midnight:preview'
+}
